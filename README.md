@@ -56,13 +56,13 @@ Use WSL2 with Docker Desktop. Flash and serial steps require additional setup �
 
 > **Warning:** The workspace initialization (`init-workspace.sh`) downloads the entire Zephyr source tree and all module dependencies (~5 GB). It will take a long time and peg your CPU. Run it when you don't need your machine for anything else and are due a coffee.
 
-**1. Build the Docker image** — downloads the Zephyr SDK ARM toolchain and host tools. Takes ~5 min.
+**1. Build the Docker image** — downloads the Zephyr SDK ARM toolchain and host tools. Takes ~5-10 min.
 
 ```bash
 docker compose build
 ```
 
-**2. Initialize the Zephyr workspace** — clones Zephyr and all modules into `workspace/`. Takes a very long time. Only needed once per machine; `workspace/` is gitignored.
+**2. Initialize the Zephyr workspace** — clones Zephyr and all modules into `workspace/`. Uses `--depth=1` shallow clones (latest commit only, no history) to keep the download manageable. Still takes 20-40 min and ~3 GB on first run. Only needed once per machine; `workspace/` is gitignored.
 
 ```bash
 docker compose run zephyr ./scripts/init-workspace.sh
