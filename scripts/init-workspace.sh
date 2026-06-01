@@ -2,7 +2,7 @@
 # Run once to initialise the Zephyr west workspace inside the container.
 set -e
 
-ZEPHYR_VERSION=${ZEPHYR_VERSION:-v3.7.0}
+ZEPHYR_VERSION=${ZEPHYR_VERSION:-v4.4.0}
 
 echo "Initialising Zephyr workspace (${ZEPHYR_VERSION})..."
 west init -m https://github.com/zephyrproject-rtos/zephyr --mr "${ZEPHYR_VERSION}" /workspace

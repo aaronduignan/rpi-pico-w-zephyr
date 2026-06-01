@@ -1,8 +1,8 @@
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV ZEPHYR_SDK_VERSION=0.16.8
-ENV ZEPHYR_VERSION=v3.7.0
+ENV ZEPHYR_SDK_VERSION=1.0.1
+ENV ZEPHYR_VERSION=v4.4.0
 ENV ZEPHYR_BASE=/workspace/zephyr
 
 # System deps
@@ -12,13 +12,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xz-utils file make gcc gcc-multilib g++-multilib libsdl2-dev libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Zephyr SDK (ARM toolchain) — kept as its own layer so it stays cached
-RUN wget -q \
-    https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${ZEPHYR_SDK_VERSION}/zephyr-sdk-${ZEPHYR_SDK_VERSION}_linux-x86_64.tar.xz \
-    -O /tmp/zephyr-sdk.tar.xz \
-    && tar -xf /tmp/zephyr-sdk.tar.xz -C /opt \
-    && /opt/zephyr-sdk-${ZEPHYR_SDK_VERSION}/setup.sh -t arm-zephyr-eabi -h -c \
-    && rm /tmp/zephyr-sdk.tar.xz
+# Zephyr SDK — minimal base + ARM toolchain + host tools
+RUN BASE=https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${ZEPHYR_SDK_VERSION} \
+    && wget -q ${BASE}/zephyr-sdk-${ZEPHYR_SDK_VERSION}_linux-x86_64_minimal.tar.xz -O /tmp/sdk.tar.xz \
+    && tar -xf /tmp/sdk.tar.xz -C /opt && rm /tmp/sdk.tar.xz \
+    && wget -q ${BASE}/toolchain_gnu_linux-x86_64_arm-zephyr-eabi.tar.xz -O /tmp/toolchain.tar.xz \
+    && tar -xf /tmp/toolchain.tar.xz -C /opt/zephyr-sdk-${ZEPHYR_SDK_VERSION} && rm /tmp/toolchain.tar.xz \
+    && wget -q ${BASE}/hosttools_linux-x86_64.tar.xz -O /tmp/hosttools.tar.xz \
+    && tar -xf /tmp/hosttools.tar.xz -C /opt/zephyr-sdk-${ZEPHYR_SDK_VERSION} && rm /tmp/hosttools.tar.xz \
+    && /opt/zephyr-sdk-${ZEPHYR_SDK_VERSION}/setup.sh -c
 
 ENV ZEPHYR_SDK_INSTALL_DIR=/opt/zephyr-sdk-${ZEPHYR_SDK_VERSION}
 
