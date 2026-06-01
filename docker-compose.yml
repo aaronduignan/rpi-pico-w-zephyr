@@ -1,0 +1,14 @@
+version: '3.8'
+services:
+  zephyr:
+    build: .
+    platform: linux/amd64
+    volumes:
+      - ./workspace:/workspace
+      - ./app:/workspace/app
+      - ./scripts:/workspace/scripts
+    working_dir: /workspace
+    environment:
+      - ZEPHYR_BASE=/workspace/zephyr
+    stdin_open: true
+    tty: true
