@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ZEPHYR_SDK_VERSION=1.0.1
@@ -20,15 +20,15 @@ RUN BASE=https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${ZEPHY
     && tar -xf /tmp/toolchain.tar.xz -C /opt/zephyr-sdk-${ZEPHYR_SDK_VERSION} && rm /tmp/toolchain.tar.xz \
     && wget -q ${BASE}/hosttools_linux-x86_64.tar.xz -O /tmp/hosttools.tar.xz \
     && tar -xf /tmp/hosttools.tar.xz -C /opt/zephyr-sdk-${ZEPHYR_SDK_VERSION} && rm /tmp/hosttools.tar.xz \
-    && /opt/zephyr-sdk-${ZEPHYR_SDK_VERSION}/setup.sh -c
+    && /opt/zephyr-sdk-${ZEPHYR_SDK_VERSION}/setup.sh -t arm-zephyr-eabi -c
 
 ENV ZEPHYR_SDK_INSTALL_DIR=/opt/zephyr-sdk-${ZEPHYR_SDK_VERSION}
 
 # Python deps
-RUN pip3 install west \
+RUN pip3 install --break-system-packages west \
     && wget -q https://raw.githubusercontent.com/zephyrproject-rtos/zephyr/${ZEPHYR_VERSION}/scripts/requirements-base.txt \
         -O /tmp/requirements-base.txt \
-    && pip3 install -r /tmp/requirements-base.txt \
+    && pip3 install --break-system-packages -r /tmp/requirements-base.txt \
     && rm /tmp/requirements-base.txt
 
 WORKDIR /workspace
