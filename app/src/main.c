@@ -2,9 +2,7 @@
 
 int main(void)
 {
-	while (1) {
-		printk("Hello, Pico W!\n");
-		k_sleep(K_SECONDS(1));
-	}
+	printk("Pico W - Zephyr testing.\n");
+	/* Zephyr shell runs in its own thread; returning here is safe. */
 	return 0;
 }
