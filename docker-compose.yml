@@ -8,7 +8,5 @@ services:
       - ./app:/workspace/app
       - ./scripts:/workspace/scripts
     working_dir: /workspace
-    environment:
-      - ZEPHYR_BASE=/workspace/zephyr
     stdin_open: true
     tty: true
