@@ -14,6 +14,17 @@
                 "panel": "shared"
             },
             "problemMatcher": []
+        },
+        {
+            "label": "Clean build firmware",
+            "type": "shell",
+            "command": "docker compose run --rm -e PRISTINE=always zephyr ./scripts/build.sh",
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
         }
     ]
 }

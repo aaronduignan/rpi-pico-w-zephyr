@@ -13,7 +13,7 @@
             "gdbPath": "arm-none-eabi-gdb",
             "device": "RP2040",
             "runToEntryPoint": "main",
-            "preLaunchTask": "Build firmware"
+            // "preLaunchTask": "Build firmware"
         }
     ]
 }
