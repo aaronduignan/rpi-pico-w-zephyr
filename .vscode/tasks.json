@@ -28,6 +28,28 @@
                 "panel": "shared"
             },
             "problemMatcher": []
+        },
+        {
+            "label": "Memory report",
+            "type": "shell",
+            "command": "docker compose run --rm zephyr ./scripts/memory_report.sh",
+            "group": "none",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Memory report (verbose)",
+            "type": "shell",
+            "command": "docker compose run --rm zephyr ./scripts/memory_report.sh --verbose",
+            "group": "none",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
         }
     ]
 }
