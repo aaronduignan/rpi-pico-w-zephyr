@@ -6,7 +6,8 @@ set -e
 BLOB_DIR=/workspace/modules/hal/infineon/zephyr/blobs
 
 WIFI_FW_DIR=${BLOB_DIR}/img/whd/resources/firmware/COMPONENT_43439
-WIFI_CLM_DIR=${BLOB_DIR}/img/whd/resources/clm/COMPONENT_43439/COMPONENT_CYW943439M2IPA1
+# WIFI_CLM_DIR=${BLOB_DIR}/img/whd/resources/clm/COMPONENT_43439/COMPONENT_CYW943439M2IPA1
+WIFI_CLM_DIR=${BLOB_DIR}/img/whd/resources/clm/COMPONENT_43439/COMPONENT_MURATA-1YN
 BT_FW_DIR=${BLOB_DIR}/img/bluetooth/firmware/COMPONENT_43439/COMPONENT_MURATA-1YN
 
 mkdir -p "${WIFI_FW_DIR}" "${WIFI_CLM_DIR}" "${BT_FW_DIR}"

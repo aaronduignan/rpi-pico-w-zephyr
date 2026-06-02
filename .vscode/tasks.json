@@ -4,7 +4,7 @@
         {
             "label": "Build firmware",
             "type": "shell",
-            "command": "docker compose run zephyr ./scripts/build.sh",
+            "command": "docker compose run --rm zephyr ./scripts/build.sh",
             "group": {
                 "kind": "build",
                 "isDefault": true
