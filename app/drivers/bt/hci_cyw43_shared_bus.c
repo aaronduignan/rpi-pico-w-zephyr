@@ -27,8 +27,22 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(cyw43_bt_hci);
 
+#define TRACE_INF(fmt, ...)                                                    \
+	do {                                                                   \
+		LOG_INF(fmt, ##__VA_ARGS__);                                   \
+		printk("CYW43 BT: " fmt "\n", ##__VA_ARGS__);                  \
+	} while (0)
+
+#define TRACE_ERR(fmt, ...)                                                    \
+	do {                                                                   \
+		LOG_ERR(fmt, ##__VA_ARGS__);                                   \
+		printk("CYW43 BT ERROR: " fmt "\n", ##__VA_ARGS__);            \
+	} while (0)
+
 /* BT control register — used to verify BT core is accessible */
 #define BT_CTRL_REG_ADDR  0x18000c7c
+#define HOST_CTRL_REG_ADDR 0x18000d6c
+#define BT_BUF_REG_ADDR   0x18000c78
 
 struct cyw43_bt_hci_data {
 	bt_hci_recv_t recv;
@@ -47,31 +61,97 @@ static whd_driver_t get_whd_driver(void)
 	return ((struct whd_interface *)iface)->whd_driver;
 }
 
-static int cyw43_bt_open(const struct device *dev, bt_hci_recv_t recv)
+static int cyw43_bt_read_reg(whd_driver_t whd_drv, const char *name,
+			     uint32_t addr, uint32_t *value)
 {
-	struct cyw43_bt_hci_data *data = dev->data;
-	uint32_t bt_ctrl = 0;
 	whd_result_t result;
 
-	data->recv = recv;
-
-	LOG_INF("CYW43 BT HCI open — probing chip via WHD backplane...");
-
-	data->whd_drv = get_whd_driver();
-	if (!data->whd_drv) {
-		LOG_ERR("WiFi not initialised — cannot access shared bus");
-		return -ENODEV;
-	}
-
-	/* Read BT_CTRL_REG to verify we can reach the BT core */
-	result = whd_bus_read_backplane_value(data->whd_drv, BT_CTRL_REG_ADDR,
-					      sizeof(bt_ctrl), (uint8_t *)&bt_ctrl);
+	*value = 0;
+	result = whd_bus_read_backplane_value(whd_drv, addr, sizeof(*value),
+					      (uint8_t *)value);
 	if (result != WHD_SUCCESS) {
-		LOG_ERR("Backplane read failed (result %d)", result);
+		TRACE_ERR("%s read failed at 0x%08x (result %d)", name, addr,
+			  result);
 		return -EIO;
 	}
 
-	LOG_INF("BT_CTRL_REG = 0x%08x — BT core reachable", bt_ctrl);
+	TRACE_INF("%s @ 0x%08x = 0x%08x", name, addr, *value);
+	return 0;
+}
+
+static int cyw43_bt_open(const struct device *dev, bt_hci_recv_t recv)
+{
+	struct cyw43_bt_hci_data *data = dev->data;
+	struct whd_bt_info bt_info;
+	whd_driver_t shared_drv;
+	uint32_t reg_value;
+	whd_result_t result;
+	int ret;
+
+	data->recv = recv;
+
+	TRACE_INF("HCI open — probing chip via WHD backplane...");
+
+	data->whd_drv = get_whd_driver();
+	if (!data->whd_drv) {
+		TRACE_ERR("WiFi not initialised — cannot access shared bus");
+		return -ENODEV;
+	}
+
+	result = whd_bus_share_bt_init(data->whd_drv);
+	if (result != WHD_SUCCESS) {
+		TRACE_ERR("WHD shared BT bus init failed (result %d)", result);
+		return -EIO;
+	}
+	TRACE_INF("WHD shared BT bus init OK");
+
+	shared_drv = whd_bt_get_whd_driver();
+	TRACE_INF("WHD BT driver handle %p (WiFi handle %p)",
+		  (void *)shared_drv, (void *)data->whd_drv);
+	if (shared_drv != data->whd_drv) {
+		TRACE_ERR("WHD BT driver handle mismatch");
+		return -EIO;
+	}
+
+	result = whd_get_bt_info(data->whd_drv, &bt_info);
+	if (result != WHD_SUCCESS) {
+		TRACE_ERR("WHD BT info failed (result %d)", result);
+		return -EIO;
+	}
+	TRACE_INF("WHD BT info: bt_ctrl=0x%08x host_ctrl=0x%08x bt_buf=0x%08x wlan_buf=0x%08x",
+		  bt_info.bt_ctrl_reg_addr, bt_info.host_ctrl_reg_addr,
+		  bt_info.bt_buf_reg_addr, bt_info.wlan_buf_addr);
+
+	ret = cyw43_bt_read_reg(data->whd_drv, "BT_CTRL_REG",
+				bt_info.bt_ctrl_reg_addr ?
+				bt_info.bt_ctrl_reg_addr : BT_CTRL_REG_ADDR,
+				&reg_value);
+	if (ret) {
+		return ret;
+	}
+
+	ret = cyw43_bt_read_reg(data->whd_drv, "BT_BUF_REG",
+				bt_info.bt_buf_reg_addr ?
+				bt_info.bt_buf_reg_addr : BT_BUF_REG_ADDR,
+				&reg_value);
+	if (ret) {
+		return ret;
+	}
+
+	ret = cyw43_bt_read_reg(data->whd_drv, "HOST_CTRL_REG",
+				bt_info.host_ctrl_reg_addr ?
+				bt_info.host_ctrl_reg_addr : HOST_CTRL_REG_ADDR,
+				&reg_value);
+	if (ret) {
+		return ret;
+	}
+
+	result = whd_bus_bt_attach(data->whd_drv, data, NULL);
+	if (result != WHD_SUCCESS) {
+		TRACE_ERR("WHD BT attach failed (result %d)", result);
+		return -EIO;
+	}
+	TRACE_INF("WHD BT attach OK — HCI packet transport not implemented yet");
 
 	return -ENOSYS;
 }
