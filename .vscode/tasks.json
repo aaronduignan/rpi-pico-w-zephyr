@@ -19,7 +19,10 @@
             "label": "Clean build firmware",
             "type": "shell",
             "command": "docker compose run --rm -e PRISTINE=always zephyr ./scripts/build.sh",
-            "group": "build",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
             "presentation": {
                 "reveal": "always",
                 "panel": "shared"
