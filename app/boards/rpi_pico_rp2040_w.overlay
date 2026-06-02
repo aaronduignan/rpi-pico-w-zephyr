@@ -1,0 +1,18 @@
+/ {
+	chosen {
+		zephyr,bt-hci = &cyw43_bt_hci;
+	};
+
+	/*
+	 * CYW43439 Bluetooth HCI device. Uses a custom shared-bus transport
+	 * over the same PIO SPI bus as the AIROC WiFi driver — there is no
+	 * dedicated BT UART on the Pico W. The driver in drivers/bt/
+	 * implements the Zephyr bt_hci_driver_api over this shared bus.
+	 */
+	cyw43_bt_hci: cyw43-bt-hci {
+		compatible = "infineon,cyw43-bt-hci-shared-bus";
+		bt-hci-name = "CYW43 Shared Bus";
+		bt-hci-bus = "spi";
+		status = "okay";
+	};
+};

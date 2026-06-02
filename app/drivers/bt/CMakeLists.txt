@@ -1,0 +1,2 @@
+zephyr_library()
+zephyr_library_sources_ifdef(CONFIG_BT_CYW43_SHARED_BUS_HCI hci_cyw43_shared_bus.c)

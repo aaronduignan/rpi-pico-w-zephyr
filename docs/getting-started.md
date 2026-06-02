@@ -59,6 +59,32 @@ A curated set of references for developing on the Raspberry Pi Pico W with Zephy
 
 ---
 
+## CYW43439 Firmware Blobs
+
+The CYW43439 has no onboard flash — the RP2040 uploads proprietary Infineon firmware to it at every boot. These binary blobs cannot be open-sourced and must be fetched separately.
+
+| Blob | Purpose |
+|------|---------|
+| `43439A0.bin` | WiFi firmware — uploaded to CYW43 RAM at boot |
+| `43439A0.clm_blob` | Country Localization Module — regional WiFi regulatory limits |
+| `bt_firmware.hcd` | BT firmware patch — uploaded via HCI transport before BT can be used |
+
+**Fetch just the CYW43439 blobs** (fast, included in workspace init):
+
+```bash
+docker compose run zephyr ./scripts/fetch-blobs.sh
+```
+
+**Fetch all hal_infineon blobs** (slow — downloads firmware for every Infineon chip):
+
+```bash
+docker compose run zephyr bash -c "cd /workspace && west blobs fetch hal_infineon"
+```
+
+Blobs land in `workspace/modules/hal/infineon/zephyr/blobs/` and are baked into the ELF at build time. They are excluded from git via `.gitignore` on the `workspace/` directory.
+
+---
+
 ## This Repo
 
 - [Hardware Block Diagram](architecture/hw-block-diagram.md)

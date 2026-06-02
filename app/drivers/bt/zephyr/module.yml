@@ -1,0 +1,4 @@
+name: cyw43-bt-hci-shared-bus
+build:
+  cmake: .
+  kconfig: Kconfig
