@@ -8,6 +8,7 @@
 	 * over the same PIO SPI bus as the AIROC WiFi driver — there is no
 	 * dedicated BT UART on the Pico W. The driver in drivers/bt/
 	 * implements the Zephyr bt_hci_driver_api over this shared bus.
+	 * Driver lives in drivers/cyw43/bt/.
 	 */
 	cyw43_bt_hci: cyw43-bt-hci {
 		compatible = "infineon,cyw43-bt-hci-shared-bus";

@@ -6,7 +6,7 @@
             "type": "cortex-debug",
             "request": "launch",
             "servertype": "openocd",
-            "executable": "${workspaceFolder}/app/build/zephyr/zephyr.elf",
+            "executable": "${workspaceFolder}/build/zephyr/zephyr.elf",
             "configFiles": [
                 "${workspaceFolder}/openocd/picoprobe.cfg"
             ],

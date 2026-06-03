@@ -1,5 +1,8 @@
 {
     "claude.env": {
         "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1"
-    }
+    },
+    "cmake.ignoreCMakeListsMissing": true,
+    "cmake.autoConfigureOnOpen": false,
+    "cmake.configureOnOpen": false
 }

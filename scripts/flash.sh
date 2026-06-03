@@ -2,7 +2,7 @@
 # Run on your Mac host (not inside Docker) — requires openocd in PATH.
 set -e
 
-ELF=${1:-app/build/zephyr/zephyr.elf}
+ELF=${1:-build/zephyr/zephyr.elf}
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 if [ ! -f "${SCRIPT_DIR}/${ELF}" ]; then

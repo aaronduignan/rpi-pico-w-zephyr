@@ -78,7 +78,13 @@ docker compose run zephyr ./scripts/init-workspace.sh
 docker compose run zephyr ./scripts/build.sh
 ```
 
-Output: `app/build/zephyr/zephyr.elf`
+Output: `build/zephyr/zephyr.elf`
+
+To build a specific sample (default is `ble_advertiser`):
+
+```bash
+SAMPLE=ble_advertiser docker compose run zephyr ./scripts/build.sh
+```
 
 **Flash** (run on host, not in Docker)
 
@@ -110,17 +116,22 @@ Exit `screen` with `Ctrl-A` then `K`, then `y` to confirm.
 .
 ├── Dockerfile                  # Zephyr SDK build environment
 ├── docker-compose.yml
+├── drivers/
+│   └── cyw43/bt/               # CYW43439 BT HCI shared-bus driver
+├── dts/bindings/bluetooth/     # Out-of-tree DT binding for the BT HCI node
+├── boards/                     # Board DTS overlays (shared across samples)
+├── firmware/                   # CYW43439 BT firmware blob and NVRAM
+├── samples/
+│   └── ble_advertiser/         # Non-connectable BLE beacon sample
+│       ├── CMakeLists.txt
+│       ├── prj.conf
+│       └── src/main.c
 ├── openocd/
 │   └── picoprobe.cfg           # OpenOCD config for Debug Probe
-├── scripts/
-│   ├── init-workspace.sh       # One-time west workspace setup
-│   ├── build.sh                # Build firmware (run in Docker)
-│   └── flash.sh                # Flash via OpenOCD (run on host)
-└── app/
-    ├── CMakeLists.txt
-    ├── prj.conf
-    └── src/
-        └── main.c
+└── scripts/
+    ├── init-workspace.sh       # One-time west workspace setup
+    ├── build.sh                # Build firmware (run in Docker)
+    └── flash.sh                # Flash via OpenOCD (run on host)
 ```
 
 ## Zephyr Version

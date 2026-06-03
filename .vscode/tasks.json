@@ -1,13 +1,22 @@
 {
     "version": "2.0.0",
+    "inputs": [
+        {
+            "id": "sample",
+            "type": "pickString",
+            "description": "Sample to build",
+            "options": ["ble_advertiser"],
+            "default": "ble_advertiser"
+        }
+    ],
     "tasks": [
         {
             "label": "Build firmware",
             "type": "shell",
-            "command": "docker compose run --rm zephyr ./scripts/build.sh",
+            "command": "docker compose run --rm -e SAMPLE=${input:sample} zephyr ./scripts/build.sh",
             "group": {
                 "kind": "build",
-                "isDefault": true
+                "isDefault": false
             },
             "presentation": {
                 "reveal": "always",
@@ -16,12 +25,12 @@
             "problemMatcher": []
         },
         {
-            "label": "Clean build firmware",
+            "label": "Clean",
             "type": "shell",
-            "command": "docker compose run --rm -e PRISTINE=always zephyr ./scripts/build.sh",
+            "command": "rm -rf build",
             "group": {
                 "kind": "build",
-                "isDefault": true
+                "isDefault": false
             },
             "presentation": {
                 "reveal": "always",
@@ -32,7 +41,7 @@
         {
             "label": "Memory report",
             "type": "shell",
-            "command": "docker compose run --rm zephyr ./scripts/memory_report.sh",
+            "command": "docker compose run --rm -e SAMPLE=${input:sample} zephyr ./scripts/memory_report.sh",
             "group": "none",
             "presentation": {
                 "reveal": "always",
@@ -43,7 +52,7 @@
         {
             "label": "Memory report (verbose)",
             "type": "shell",
-            "command": "docker compose run --rm zephyr ./scripts/memory_report.sh --verbose",
+            "command": "docker compose run --rm -e SAMPLE=${input:sample} zephyr ./scripts/memory_report.sh --verbose",
             "group": "none",
             "presentation": {
                 "reveal": "always",

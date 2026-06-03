@@ -1,12 +1,16 @@
 #!/bin/bash
-# Run inside the container: docker compose run zephyr ./scripts/build.sh
+# Run inside the container: docker compose run --rm zephyr ./scripts/build.sh
 set -e
 
 JOBS=${JOBS:-$(nproc)}
 PRISTINE=${PRISTINE:-auto}
+SAMPLE=${SAMPLE:-ble_advertiser}
+
+APP_DIR=/workspace/app/samples/${SAMPLE}
+BUILD_DIR=/workspace/app/build
 
 export ZEPHYR_BASE=/workspace/zephyr
 cd /workspace
-west build -b rpi_pico/rp2040/w /workspace/app --build-dir /workspace/app/build --pristine="${PRISTINE}" --build-opt=-j"${JOBS}" "$@"
-echo "Build complete: app/build/zephyr/zephyr.elf"
-python3 /workspace/scripts/elf_map.py --short /workspace/app/build/zephyr/zephyr.elf
+west build -b rpi_pico/rp2040/w "${APP_DIR}" --build-dir "${BUILD_DIR}" --pristine="${PRISTINE}" --build-opt=-j"${JOBS}" "$@"
+echo "Build complete: build/zephyr/zephyr.elf"
+python3 /workspace/scripts/elf_map.py --short "${BUILD_DIR}/zephyr/zephyr.elf"
