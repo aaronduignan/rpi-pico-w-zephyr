@@ -13,6 +13,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/bluetooth.h>
+#include <zephyr/bluetooth/buf.h>
 #include <zephyr/bluetooth/hci.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/util.h>
@@ -59,10 +60,13 @@ LOG_MODULE_REGISTER(cyw43_bt_hci);
 #define BTSDIO_POLL_INTERVAL_MS 1
 #define BTFW_WAIT_TIME_MS 150
 
-#define BT_HCI_OP_READ_LOCAL_VERSION 0x1001
 #define HCI_PACKET_TYPE_COMMAND 0x01
-#define HCI_PACKET_TYPE_EVENT 0x04
-#define HCI_EVENT_CMD_COMPLETE 0x0e
+#define HCI_PACKET_TYPE_ACL     0x02
+#define HCI_PACKET_TYPE_EVENT   0x04
+
+#define CYW43_BT_RX_STACK_SIZE  1536
+#define CYW43_BT_RX_PRIORITY    K_PRIO_PREEMPT(5)
+#define CYW43_BT_RX_BUF_SIZE    264  /* 4-byte header + 260 payload */
 
 #define CYW43_BT_BUF_WORDS 80
 
@@ -100,7 +104,10 @@ struct cyw43_bt_hci_data {
 	whd_driver_t whd_drv;
 	uint32_t host_ctrl_cache;
 	struct cyw43_bt_fw_buf fw_buf;
+	struct k_thread rx_thread;
 };
+
+K_THREAD_STACK_DEFINE(cyw43_bt_rx_stack, CYW43_BT_RX_STACK_SIZE);
 
 static whd_driver_t get_whd_driver(void)
 {
@@ -670,51 +677,54 @@ static int cyw43_bt_ring_read(struct cyw43_bt_hci_data *data, uint8_t *packet,
 	return cyw43_bt_toggle_intr(data);
 }
 
-static int cyw43_bt_probe_version(struct cyw43_bt_hci_data *data)
+static void cyw43_bt_rx_thread(void *p1, void *p2, void *p3)
 {
-	uint8_t cmd[8] __aligned(4) = {
-		0x03, 0x00, 0x00, HCI_PACKET_TYPE_COMMAND,
-		BT_HCI_OP_READ_LOCAL_VERSION & 0xff,
-		BT_HCI_OP_READ_LOCAL_VERSION >> 8,
-		0x00,
-	};
-	uint8_t event[80] __aligned(4);
-	uint32_t event_len;
-	int ret;
+	const struct device *dev = p1;
+	struct cyw43_bt_hci_data *data = dev->data;
+	uint8_t buf[CYW43_BT_RX_BUF_SIZE] __aligned(4);
 
-	ret = cyw43_bt_ring_write(data, cmd, 7);
-	if (ret) {
-		LOG_ERR("BT version command write failed (%d)", ret);
-		return ret;
-	}
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
 
-	for (int i = 0; i < 300; i++) {
-		ret = cyw43_bt_ring_read(data, event, sizeof(event), &event_len);
-		if (ret == -EAGAIN) {
+	while (1) {
+		uint32_t len = 0;
+		int ret = cyw43_bt_ring_read(data, buf, sizeof(buf), &len);
+
+		if (ret == -EAGAIN || len < 4) {
 			k_msleep(1);
 			continue;
 		}
+
 		if (ret) {
-			LOG_ERR("BT version event read failed (%d)", ret);
-			return ret;
+			LOG_ERR("BT ring read error: %d", ret);
+			k_msleep(1);
+			continue;
 		}
 
-		LOG_INF("BT event: type=0x%02x event=0x%02x len=%u",
-			event[3], event[4], event_len);
+		uint8_t pkt_type = buf[3];
+		struct net_buf *nb = NULL;
 
-		if (event_len >= 18 && event[3] == HCI_PACKET_TYPE_EVENT &&
-		    event[4] == HCI_EVENT_CMD_COMPLETE &&
-		    sys_get_le16(&event[7]) == BT_HCI_OP_READ_LOCAL_VERSION) {
-			LOG_INF("BT local version: status=0x%02x hci=0x%02x rev=0x%04x lmp=0x%02x manufacturer=0x%04x subver=0x%04x",
-				event[9], event[10], sys_get_le16(&event[11]),
-				event[13], sys_get_le16(&event[14]),
-				sys_get_le16(&event[16]));
-			return 0;
+		switch (pkt_type) {
+		case HCI_PACKET_TYPE_EVENT:
+			nb = bt_buf_get_rx(BT_BUF_EVT, K_NO_WAIT);
+			break;
+		case HCI_PACKET_TYPE_ACL:
+			nb = bt_buf_get_rx(BT_BUF_ACL_IN, K_NO_WAIT);
+			break;
+		default:
+			LOG_WRN("BT unknown packet type 0x%02x len %u",
+				pkt_type, len);
+			continue;
 		}
+
+		if (!nb) {
+			LOG_ERR("BT no RX buffer for type 0x%02x", pkt_type);
+			continue;
+		}
+
+		net_buf_add_mem(nb, &buf[4], len - 4);
+		data->recv(dev, nb);
 	}
-
-	LOG_ERR("BT version command timed out");
-	return -ETIMEDOUT;
 }
 
 static int cyw43_bt_open(const struct device *dev, bt_hci_recv_t recv)
@@ -832,23 +842,47 @@ static int cyw43_bt_open(const struct device *dev, bt_hci_recv_t recv)
 		return ret;
 	}
 
-	ret = cyw43_bt_probe_version(data);
-	if (ret) {
-		LOG_ERR("BT version probe failed (%d)", ret);
-		return ret;
-	}
+	k_thread_create(&data->rx_thread, cyw43_bt_rx_stack,
+			K_THREAD_STACK_SIZEOF(cyw43_bt_rx_stack),
+			cyw43_bt_rx_thread, (void *)dev, NULL, NULL,
+			CYW43_BT_RX_PRIORITY, 0, K_NO_WAIT);
+	k_thread_name_set(&data->rx_thread, "bt_rx");
 
-	LOG_INF("BT shared-bus probe complete — Zephyr HCI transport not implemented yet");
-
-	return -ENOSYS;
+	LOG_INF("BT HCI transport ready");
+	return 0;
 }
 
 static int cyw43_bt_send(const struct device *dev, struct net_buf *buf)
 {
-	ARG_UNUSED(dev);
+	struct cyw43_bt_hci_data *data = dev->data;
+	uint8_t type = net_buf_pull_u8(buf);  /* H:4 type byte prepended by stack */
+	uint32_t payload_len = buf->len;
+	uint8_t tx[CYW43_BT_RX_BUF_SIZE] __aligned(4);
+	int ret;
 
+	if (4 + payload_len > sizeof(tx)) {
+		LOG_ERR("BT send: packet too large (%u)", payload_len);
+		net_buf_unref(buf);
+		return -EINVAL;
+	}
+
+	/* BTSDIO 4-byte header: [len_lo, len_mid, len_hi, packet_type] */
+	tx[0] = payload_len & 0xff;
+	tx[1] = (payload_len >> 8) & 0xff;
+	tx[2] = 0;
+	tx[3] = type;
+	memcpy(&tx[4], buf->data, payload_len);
 	net_buf_unref(buf);
-	return -ENOSYS;
+
+	ret = cyw43_bt_set_bt_awake(data, true);
+	if (!ret) {
+		ret = cyw43_bt_wait_awake(data);
+	}
+	if (!ret) {
+		ret = cyw43_bt_ring_write(data, tx, 4 + payload_len);
+	}
+
+	return ret;
 }
 
 static DEVICE_API(bt_hci, cyw43_bt_hci_api) = {
