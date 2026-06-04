@@ -573,7 +573,7 @@ static int cyw43_bt_ring_write(struct cyw43_bt_hci_data *data,
 		return ret;
 	}
 
-	LOG_INF("BT ring before write: h2b_in=%u h2b_out=%u b2h_in=%u b2h_out=%u",
+	LOG_DBG("BT ring before write: h2b_in=%u h2b_out=%u b2h_in=%u b2h_out=%u",
 		index.h2b_in, index.h2b_out, index.b2h_in, index.b2h_out);
 
 	if (rounded_len > cyw43_bt_circ_space(index.h2b_in, index.h2b_out)) {
@@ -690,7 +690,7 @@ static void cyw43_bt_rx_thread(void *p1, void *p2, void *p3)
 		uint32_t len = 0;
 		int ret = cyw43_bt_ring_read(data, buf, sizeof(buf), &len);
 
-		if (ret == -EAGAIN || len < 4) {
+		if (ret == -EAGAIN || len <= 4) {
 			k_msleep(1);
 			continue;
 		}
@@ -712,7 +712,7 @@ static void cyw43_bt_rx_thread(void *p1, void *p2, void *p3)
 			nb = bt_buf_get_rx(BT_BUF_ACL_IN, K_NO_WAIT);
 			break;
 		default:
-			LOG_WRN("BT unknown packet type 0x%02x len %u",
+			LOG_DBG("BT unknown packet type 0x%02x len %u",
 				pkt_type, len);
 			continue;
 		}

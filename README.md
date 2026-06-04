@@ -9,7 +9,6 @@ Containerised Zephyr RTOS build environment for the Raspberry Pi Pico W, with SW
 | macOS Intel | ✅ | ✅ | ✅ |
 | macOS Apple Silicon | ⚠️ Slow (Rosetta emulation) | ✅ | ✅ |
 | Linux (Ubuntu/Debian) | ✅ | ✅ | ✅ |
-| Windows (WSL2) | ⚠️ Partial | ⚠️ Complex | ⚠️ PuTTY |
 
 ## Hardware Required
 
@@ -32,6 +31,8 @@ brew install openocd
 
 [Install Docker Desktop for Mac](https://www.docker.com/products/docker-desktop/)
 
+> Docker Desktop must be running before building. The VS Code build task starts it automatically via `scripts/docker-start.sh`. From the terminal, run `./scripts/docker-start.sh` first if needed.
+
 ### Linux (Ubuntu/Debian)
 
 ```bash
@@ -46,9 +47,7 @@ Add yourself to the `dialout` group for serial access:
 sudo usermod -aG dialout $USER
 ```
 
-### Windows
-
-Use WSL2 with Docker Desktop. Flash and serial steps require additional setup — see the [OpenOCD Windows guide](https://openocd.org).
+> Docker Engine runs as a system service and starts automatically on boot. If not running: `sudo systemctl start docker`.
 
 ---
 
@@ -75,16 +74,12 @@ docker compose run zephyr ./scripts/init-workspace.sh
 **Build**
 
 ```bash
-docker compose run zephyr ./scripts/build.sh
+SAMPLE=cli docker compose run zephyr ./scripts/build.sh
 ```
 
 Output: `build/zephyr/zephyr.elf`
 
-To build a specific sample (default is `ble_advertiser`):
-
-```bash
-SAMPLE=ble_advertiser docker compose run zephyr ./scripts/build.sh
-```
+Available samples: `cli`, `ble_advertiser`, `ble_scanner`
 
 **Flash** (run on host, not in Docker)
 
@@ -96,17 +91,21 @@ SAMPLE=ble_advertiser docker compose run zephyr ./scripts/build.sh
 
 macOS:
 ```bash
-ls /dev/tty.usbmodem*
 screen /dev/tty.usbmodem* 115200
 ```
 
 Linux:
 ```bash
-ls /dev/ttyACM*
 screen /dev/ttyACM0 115200
 ```
 
 Exit `screen` with `Ctrl-A` then `K`, then `y` to confirm.
+
+---
+
+## VS Code
+
+Shift+Cmd+B opens the build task picker. Select a sample and it builds, starting Docker automatically if needed.
 
 ---
 
@@ -122,16 +121,16 @@ Exit `screen` with `Ctrl-A` then `K`, then `y` to confirm.
 ├── boards/                     # Board DTS overlays (shared across samples)
 ├── firmware/                   # CYW43439 BT firmware blob and NVRAM
 ├── samples/
-│   └── ble_advertiser/         # Non-connectable BLE beacon sample
-│       ├── CMakeLists.txt
-│       ├── prj.conf
-│       └── src/main.c
+│   ├── cli/                    # Minimal shell over UART
+│   ├── ble_advertiser/         # Non-connectable BLE beacon
+│   └── ble_scanner/            # Passive BLE scanner, logs new devices + RSSI
 ├── openocd/
 │   └── picoprobe.cfg           # OpenOCD config for Debug Probe
 └── scripts/
     ├── init-workspace.sh       # One-time west workspace setup
     ├── build.sh                # Build firmware (run in Docker)
-    └── flash.sh                # Flash via OpenOCD (run on host)
+    ├── flash.sh                # Flash via OpenOCD (run on host)
+    └── docker-start.sh         # Ensure Docker is running (Mac + Linux)
 ```
 
 ## Zephyr Version

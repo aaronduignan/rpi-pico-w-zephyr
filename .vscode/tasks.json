@@ -5,15 +5,27 @@
             "id": "sample",
             "type": "pickString",
             "description": "Sample to build",
-            "options": ["cli", "ble_advertiser"],
+            "options": ["cli", "ble_advertiser", "ble_scanner"],
             "default": "cli"
         }
     ],
     "tasks": [
         {
+            "label": "Start Docker",
+            "type": "shell",
+            "command": "./scripts/docker-start.sh",
+            "group": "none",
+            "presentation": {
+                "reveal": "silent",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
             "label": "Build firmware",
             "type": "shell",
             "command": "docker compose run --rm -e SAMPLE=${input:sample} zephyr ./scripts/build.sh",
+            "dependsOn": "Start Docker",
             "group": {
                 "kind": "build",
                 "isDefault": false
