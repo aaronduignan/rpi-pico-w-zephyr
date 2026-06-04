@@ -76,6 +76,8 @@ LOG_MODULE_REGISTER(cyw43_bt_hci);
 #define BTSDIO_BT_AWAKE_RETRIES  300
 #define BTSDIO_POLL_INTERVAL_MS  1
 #define BTFW_WAIT_TIME_MS        150
+#define BTFW_PWRUP_DELAY_MS      2    /* settle time after BT2WLAN_PWRUP_WAKE */
+#define BTFW_WRITE_RETRIES       3    /* retries on backplane verify mismatch */
 
 /* H:4 UART transport packet type bytes */
 #define HCI_PACKET_TYPE_COMMAND 0x01
@@ -305,14 +307,19 @@ static int cyw43_bt_mem_write(struct cyw43_bt_hci_data *data, uint32_t addr,
  *
  * The backplane requires 4-byte-aligned accesses. If fw_addr is
  * unaligned, a read-modify-write is performed around the payload.
- * The write is verified by reading back and comparing; backplane
- * writes can silently fail on a busy bus.
+ *
+ * Each write is verified by reading back and comparing. The CYW43439
+ * shares its backplane with the WiFi core over a single PIO SPI bus —
+ * there is no bus arbitration between the two cores, so writes can
+ * silently fail if the BT core hasn't fully woken after the PWRUP signal.
+ * BTFW_WRITE_RETRIES retries with a 1 ms delay between attempts handle
+ * this without propagating a spurious error to the caller.
  *
  * @param data        Driver instance data.
  * @param fw_addr     Destination address within firmware memory space.
  * @param payload     Record payload bytes.
  * @param payload_len Payload length in bytes.
- * @return 0 on success, -EIO on verify mismatch, other negative on bus error.
+ * @return 0 on success, -EIO if all retry attempts fail, negative errno on bus error.
  */
 static int cyw43_bt_write_firmware_record(struct cyw43_bt_hci_data *data,
 					  uint32_t fw_addr,
@@ -341,27 +348,40 @@ static int cyw43_bt_write_firmware_record(struct cyw43_bt_hci_data *data,
 
 	memcpy(&aligned[offset], payload, payload_len);
 
-	ret = cyw43_bt_mem_write(data, aligned_addr, aligned, write_len);
-	if (ret) {
-		return ret;
-	}
+	for (int attempt = 0; attempt < BTFW_WRITE_RETRIES; attempt++) {
+		if (attempt > 0) {
+			LOG_WRN("BT firmware write retry %d at 0x%08x",
+				attempt, aligned_addr);
+			k_msleep(1);
+		}
 
-	ret = cyw43_bt_mem_read(data, aligned_addr, verify, write_len);
-	if (ret) {
-		LOG_ERR("BT firmware verify read failed at 0x%08x len %u",
-			aligned_addr, write_len);
-		return ret;
-	}
+		ret = cyw43_bt_mem_write(data, aligned_addr, aligned, write_len);
+		if (ret) {
+			continue;
+		}
 
-	for (uint32_t i = 0; i < write_len; i++) {
-		if (verify[i] != aligned[i]) {
-			LOG_ERR("BT firmware verify mismatch at 0x%08x: wrote 0x%02x read 0x%02x",
-				aligned_addr + i, aligned[i], verify[i]);
-			return -EIO;
+		ret = cyw43_bt_mem_read(data, aligned_addr, verify, write_len);
+		if (ret) {
+			continue;
+		}
+
+		bool match = true;
+
+		for (uint32_t i = 0; i < write_len; i++) {
+			if (verify[i] != aligned[i]) {
+				match = false;
+				break;
+			}
+		}
+
+		if (match) {
+			return 0;
 		}
 	}
 
-	return 0;
+	LOG_ERR("BT firmware write failed after %d attempts at 0x%08x",
+		BTFW_WRITE_RETRIES, aligned_addr);
+	return -EIO;
 }
 
 /**
@@ -416,6 +436,7 @@ static int cyw43_bt_download_firmware(struct cyw43_bt_hci_data *data)
 		LOG_ERR("BT power-up/wake write failed");
 		return ret;
 	}
+	k_msleep(BTFW_PWRUP_DELAY_MS);
 
 	while (remaining >= 4) {
 		uint8_t data_len = record[0];
