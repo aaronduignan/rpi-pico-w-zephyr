@@ -4,5 +4,7 @@
     },
     "cmake.ignoreCMakeListsMissing": true,
     "cmake.autoConfigureOnOpen": false,
-    "cmake.configureOnOpen": false
+    "cmake.configureOnOpen": false,
+    "C_Cpp.default.compileCommands": "",
+    "C_Cpp.autoAddFileAssociations": false
 }
