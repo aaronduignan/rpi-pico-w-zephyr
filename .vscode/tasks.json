@@ -5,8 +5,8 @@
             "id": "sample",
             "type": "pickString",
             "description": "Sample to build",
-            "options": ["ble_advertiser"],
-            "default": "ble_advertiser"
+            "options": ["cli", "ble_advertiser"],
+            "default": "cli"
         }
     ],
     "tasks": [
