@@ -3,9 +3,13 @@
  * Communicates via the shared PIO SPI bus alongside the AIROC WiFi driver.
  *
  * The CYW43439 has no dedicated BT UART on the Pico W — BT packets are
- * multiplexed over the same PIO SPI bus as WiFi using the cybt_shared_bus
- * protocol. This driver uses WHD's internal backplane access functions to
- * communicate with the BT core.
+ * multiplexed over the same PIO SPI bus as WiFi using the BTSDIO protocol.
+ * This driver uses WHD's internal backplane access functions to communicate
+ * with the BT core, and implements Zephyr's bt_hci_driver_api (open + send).
+ *
+ * Packet flow:
+ *   TX: Zephyr BT stack → cyw43_bt_send() → H2B ring → CYW43 BT core
+ *   RX: CYW43 BT core → B2H ring → cyw43_bt_rx_thread() → bt_hci_recv()
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -31,67 +35,92 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(cyw43_bt_hci);
 
-/* BT control register — used to verify BT core is accessible */
-#define BT_CTRL_REG_ADDR  0x18000c7c
-#define HOST_CTRL_REG_ADDR 0x18000d6c
-#define BT_BUF_REG_ADDR   0x18000c78
+/* Backplane register addresses for BT/host handshake */
+#define BT_CTRL_REG_ADDR       0x18000c7c
+#define HOST_CTRL_REG_ADDR     0x18000d6c
+#define BT_BUF_REG_ADDR        0x18000c78
 #define WLAN_RAM_BASE_REG_ADDR 0x18000d68
 
-#define BTFW_MEM_OFFSET 0x19000000
+/* Firmware load base and BT power-up sequence */
+#define BTFW_MEM_OFFSET    0x19000000
 #define BT2WLAN_PWRUP_ADDR 0x640894
 #define BT2WLAN_PWRUP_WAKE 0x03
 
-#define BTSDIO_FWBUF_SIZE 0x1000
+/*
+ * BTSDIO ring buffer layout (relative to WLAN RAM base published by firmware):
+ *   0x0000–0x0FFF  H2B data buffer (host-to-BT, 4 KB)
+ *   0x1000–0x1FFF  B2H data buffer (BT-to-host, 4 KB)
+ *   0x2000         h2b_in  (host write pointer)
+ *   0x2004         h2b_out (BT read pointer)
+ *   0x2008         b2h_in  (BT write pointer)
+ *   0x200c         b2h_out (host read pointer)
+ */
+#define BTSDIO_FWBUF_SIZE            0x1000
 #define BTSDIO_OFFSET_HOST_WRITE_BUF 0x0000
-#define BTSDIO_OFFSET_HOST_READ_BUF BTSDIO_FWBUF_SIZE
-#define BTSDIO_OFFSET_HOST2BT_IN 0x2000
-#define BTSDIO_OFFSET_HOST2BT_OUT 0x2004
-#define BTSDIO_OFFSET_BT2HOST_IN 0x2008
-#define BTSDIO_OFFSET_BT2HOST_OUT 0x200c
+#define BTSDIO_OFFSET_HOST_READ_BUF  BTSDIO_FWBUF_SIZE
+#define BTSDIO_OFFSET_HOST2BT_IN     0x2000
+#define BTSDIO_OFFSET_HOST2BT_OUT    0x2004
+#define BTSDIO_OFFSET_BT2HOST_IN     0x2008
+#define BTSDIO_OFFSET_BT2HOST_OUT    0x200c
 
-#define BTSDIO_REG_DATA_VALID BIT(1)
-#define BTSDIO_REG_WAKE_BT BIT(17)
-#define BTSDIO_REG_SW_RDY BIT(24)
-#define BTSDIO_REG_BT_AWAKE BIT(8)
-#define BTSDIO_REG_FW_RDY BIT(24)
+/* HOST_CTRL_REG bit fields */
+#define BTSDIO_REG_DATA_VALID BIT(1)   /* toggled to signal data available */
+#define BTSDIO_REG_WAKE_BT    BIT(17)  /* assert to wake BT core from sleep */
+#define BTSDIO_REG_SW_RDY     BIT(24)  /* set once host is ready for traffic */
 
-#define BTSDIO_FW_READY_RETRIES 300
-#define BTSDIO_BT_AWAKE_RETRIES 300
-#define BTSDIO_POLL_INTERVAL_MS 1
-#define BTFW_WAIT_TIME_MS 150
+/* BT_CTRL_REG bit fields (read-only, written by firmware) */
+#define BTSDIO_REG_BT_AWAKE BIT(8)   /* BT core is awake and ready */
+#define BTSDIO_REG_FW_RDY   BIT(24)  /* firmware boot complete */
 
+#define BTSDIO_FW_READY_RETRIES  300
+#define BTSDIO_BT_AWAKE_RETRIES  300
+#define BTSDIO_POLL_INTERVAL_MS  1
+#define BTFW_WAIT_TIME_MS        150
+
+/* H:4 UART transport packet type bytes */
 #define HCI_PACKET_TYPE_COMMAND 0x01
 #define HCI_PACKET_TYPE_ACL     0x02
 #define HCI_PACKET_TYPE_EVENT   0x04
 
-#define CYW43_BT_RX_STACK_SIZE  1536
-#define CYW43_BT_RX_PRIORITY    K_PRIO_PREEMPT(5)
-#define CYW43_BT_RX_BUF_SIZE    264  /* 4-byte header + 260 payload */
+#define CYW43_BT_RX_STACK_SIZE 1536
+#define CYW43_BT_RX_PRIORITY   K_PRIO_PREEMPT(5)
+#define CYW43_BT_RX_BUF_SIZE   264  /* 4-byte BTSDIO header + 260 HCI payload */
+#define CYW43_BT_BUF_WORDS     80   /* max firmware record size in 32-bit words */
 
-#define CYW43_BT_BUF_WORDS 80
-
+/* Intel HEX address modes used in the firmware blob */
 #define BTFW_ADDR_MODE_EXTENDED 1
-#define BTFW_ADDR_MODE_SEGMENT 2
+#define BTFW_ADDR_MODE_SEGMENT  2
 #define BTFW_ADDR_MODE_LINEAR32 3
 
-#define BTFW_HEX_LINE_TYPE_DATA 0
-#define BTFW_HEX_LINE_TYPE_END_OF_DATA 1
+/* Intel HEX record types present in the firmware blob */
+#define BTFW_HEX_LINE_TYPE_DATA                    0
+#define BTFW_HEX_LINE_TYPE_END_OF_DATA             1
 #define BTFW_HEX_LINE_TYPE_EXTENDED_SEGMENT_ADDRESS 2
-#define BTFW_HEX_LINE_TYPE_EXTENDED_ADDRESS 4
-#define BTFW_HEX_LINE_TYPE_ABSOLUTE_32BIT_ADDRESS 5
+#define BTFW_HEX_LINE_TYPE_EXTENDED_ADDRESS        4
+#define BTFW_HEX_LINE_TYPE_ABSOLUTE_32BIT_ADDRESS  5
 
 extern const unsigned char cyw43_btfw_43439[];
 extern const unsigned int cyw43_btfw_43439_len;
 
+/**
+ * Ring buffer register addresses, resolved after firmware publishes the
+ * WLAN RAM base. Stored as absolute backplane addresses ready for mem_read
+ * and reg_write calls.
+ */
 struct cyw43_bt_fw_buf {
-	uint32_t h2b_buf;
-	uint32_t b2h_buf;
-	uint32_t h2b_in;
-	uint32_t h2b_out;
-	uint32_t b2h_in;
-	uint32_t b2h_out;
+	uint32_t h2b_buf;  /* base address of H2B data ring */
+	uint32_t b2h_buf;  /* base address of B2H data ring */
+	uint32_t h2b_in;   /* address of h2b_in  index register */
+	uint32_t h2b_out;  /* address of h2b_out index register */
+	uint32_t b2h_in;   /* address of b2h_in  index register */
+	uint32_t b2h_out;  /* address of b2h_out index register */
 };
 
+/**
+ * Snapshot of all four ring indices read in one backplane transaction.
+ * h2b_in/h2b_out are owned by host/BT respectively for the H2B direction,
+ * and reversed for B2H.
+ */
 struct cyw43_bt_fw_index {
 	uint32_t h2b_in;
 	uint32_t h2b_out;
@@ -99,6 +128,13 @@ struct cyw43_bt_fw_index {
 	uint32_t b2h_out;
 };
 
+/**
+ * Per-device instance data for the HCI driver.
+ *
+ * host_ctrl_cache shadows HOST_CTRL_REG to avoid a bus read on every
+ * toggle — HOST_CTRL_REG is write-only in practice, so we maintain the
+ * last written value locally.
+ */
 struct cyw43_bt_hci_data {
 	bt_hci_recv_t recv;
 	whd_driver_t whd_drv;
@@ -109,6 +145,13 @@ struct cyw43_bt_hci_data {
 
 K_THREAD_STACK_DEFINE(cyw43_bt_rx_stack, CYW43_BT_RX_STACK_SIZE);
 
+/**
+ * Retrieve the WHD driver handle from the AIROC WiFi interface.
+ * WiFi must be fully initialised before this is called; the BT shared bus
+ * sits on top of the same WHD instance.
+ *
+ * @return WHD driver handle, or NULL if WiFi is not yet initialised.
+ */
 static whd_driver_t get_whd_driver(void)
 {
 	whd_interface_t iface = airoc_wifi_get_whd_interface();
@@ -121,6 +164,16 @@ static whd_driver_t get_whd_driver(void)
 	return ((struct whd_interface *)iface)->whd_driver;
 }
 
+/**
+ * Read a backplane register and log its value. Used only during init to
+ * verify the chip is accessible and print diagnostic register state.
+ *
+ * @param whd_drv  WHD driver handle.
+ * @param name     Human-readable register name for log output.
+ * @param addr     Backplane address to read.
+ * @param value    Output: register value on success, 0 on error.
+ * @return 0 on success, -EIO on bus failure.
+ */
 static int cyw43_bt_read_reg(whd_driver_t whd_drv, const char *name,
 			     uint32_t addr, uint32_t *value)
 {
@@ -139,6 +192,16 @@ static int cyw43_bt_read_reg(whd_driver_t whd_drv, const char *name,
 	return 0;
 }
 
+/**
+ * Read a 32-bit backplane register.
+ * HOST_CTRL_REG reads are served from the local cache to avoid a bus
+ * round-trip — the register is effectively write-only from the host side.
+ *
+ * @param data  Driver instance data.
+ * @param addr  Backplane address.
+ * @param value Output: register value.
+ * @return 0 on success, -EIO on bus failure.
+ */
 static int cyw43_bt_reg_read(struct cyw43_bt_hci_data *data, uint32_t addr,
 			     uint32_t *value)
 {
@@ -154,6 +217,17 @@ static int cyw43_bt_reg_read(struct cyw43_bt_hci_data *data, uint32_t addr,
 	return result == WHD_SUCCESS ? 0 : -EIO;
 }
 
+/**
+ * Write a 32-bit backplane register.
+ * HOST_CTRL_REG writes are mirrored into host_ctrl_cache so that
+ * subsequent read-modify-write operations on that register don't need a
+ * bus read.
+ *
+ * @param data  Driver instance data.
+ * @param addr  Backplane address.
+ * @param value Value to write.
+ * @return 0 on success, -EIO on bus failure.
+ */
 static int cyw43_bt_reg_write(struct cyw43_bt_hci_data *data, uint32_t addr,
 			      uint32_t value)
 {
@@ -172,6 +246,18 @@ static int cyw43_bt_reg_write(struct cyw43_bt_hci_data *data, uint32_t addr,
 	return 0;
 }
 
+/**
+ * Transfer an arbitrary-length block to or from the BT backplane.
+ * The WHD backplane window is 4 KB; transfers are split at window
+ * boundaries to avoid crossing them in a single call.
+ *
+ * @param data   Driver instance data.
+ * @param write  true for host→chip, false for chip→host.
+ * @param addr   Starting backplane address.
+ * @param buf    Data buffer (read into or written from).
+ * @param len    Number of bytes to transfer.
+ * @return 0 on success, -EIO on bus failure.
+ */
 static int cyw43_bt_mem_xfer(struct cyw43_bt_hci_data *data, bool write,
 			     uint32_t addr, uint8_t *buf, uint32_t len)
 {
@@ -200,18 +286,34 @@ static int cyw43_bt_mem_xfer(struct cyw43_bt_hci_data *data, bool write,
 	return 0;
 }
 
+/** Read @p len bytes from backplane @p addr into @p buf. */
 static int cyw43_bt_mem_read(struct cyw43_bt_hci_data *data, uint32_t addr,
 			     void *buf, uint32_t len)
 {
 	return cyw43_bt_mem_xfer(data, false, addr, buf, len);
 }
 
+/** Write @p len bytes from @p buf to backplane @p addr. */
 static int cyw43_bt_mem_write(struct cyw43_bt_hci_data *data, uint32_t addr,
 			      const void *buf, uint32_t len)
 {
 	return cyw43_bt_mem_xfer(data, true, addr, (uint8_t *)buf, len);
 }
 
+/**
+ * Write one Intel HEX data record to the BT core via backplane.
+ *
+ * The backplane requires 4-byte-aligned accesses. If fw_addr is
+ * unaligned, a read-modify-write is performed around the payload.
+ * The write is verified by reading back and comparing; backplane
+ * writes can silently fail on a busy bus.
+ *
+ * @param data        Driver instance data.
+ * @param fw_addr     Destination address within firmware memory space.
+ * @param payload     Record payload bytes.
+ * @param payload_len Payload length in bytes.
+ * @return 0 on success, -EIO on verify mismatch, other negative on bus error.
+ */
 static int cyw43_bt_write_firmware_record(struct cyw43_bt_hci_data *data,
 					  uint32_t fw_addr,
 					  const uint8_t *payload,
@@ -262,6 +364,17 @@ static int cyw43_bt_write_firmware_record(struct cyw43_bt_hci_data *data,
 	return 0;
 }
 
+/**
+ * Parse and download the BT firmware blob to the CYW43439 BT core.
+ *
+ * The blob is a binary Intel HEX stream prefixed with a version string and
+ * a record count. Address records (extended, segment, linear32) set the
+ * base for subsequent data records; only data records are written and
+ * counted. Address records are not counted in the logged record total.
+ *
+ * @param data  Driver instance data.
+ * @return 0 on success, negative errno on parse or write error.
+ */
 static int cyw43_bt_download_firmware(struct cyw43_bt_hci_data *data)
 {
 	const uint8_t *record = cyw43_btfw_43439;
@@ -378,6 +491,9 @@ static int cyw43_bt_download_firmware(struct cyw43_bt_hci_data *data)
 	return 0;
 }
 
+/**
+ * @return true if BT_CTRL_REG FW_RDY bit is set (firmware boot complete).
+ */
 static bool cyw43_bt_fw_ready(struct cyw43_bt_hci_data *data)
 {
 	uint32_t value = 0;
@@ -389,6 +505,9 @@ static bool cyw43_bt_fw_ready(struct cyw43_bt_hci_data *data)
 	return (value & BTSDIO_REG_FW_RDY) != 0;
 }
 
+/**
+ * @return true if BT_CTRL_REG BT_AWAKE bit is set (BT core is awake).
+ */
 static bool cyw43_bt_awake(struct cyw43_bt_hci_data *data)
 {
 	uint32_t value = 0;
@@ -400,6 +519,12 @@ static bool cyw43_bt_awake(struct cyw43_bt_hci_data *data)
 	return (value & BTSDIO_REG_BT_AWAKE) != 0;
 }
 
+/**
+ * Block until FW_RDY is set, with an initial 150 ms delay to allow the
+ * firmware to start executing after download.
+ *
+ * @return 0 when ready, -ETIMEDOUT if FW_RDY never asserts.
+ */
 static int cyw43_bt_wait_ready(struct cyw43_bt_hci_data *data)
 {
 	k_msleep(BTFW_WAIT_TIME_MS);
@@ -414,6 +539,12 @@ static int cyw43_bt_wait_ready(struct cyw43_bt_hci_data *data)
 	return -ETIMEDOUT;
 }
 
+/**
+ * Block until BT_AWAKE is set. Called before every send to ensure the
+ * BT core has come out of sleep before the H2B ring is written.
+ *
+ * @return 0 when awake, -ETIMEDOUT if BT_AWAKE never asserts.
+ */
 static int cyw43_bt_wait_awake(struct cyw43_bt_hci_data *data)
 {
 	for (int i = 0; i < BTSDIO_BT_AWAKE_RETRIES; i++) {
@@ -426,8 +557,16 @@ static int cyw43_bt_wait_awake(struct cyw43_bt_hci_data *data)
 	return -ETIMEDOUT;
 }
 
+/**
+ * Assert or deassert the WAKE_BT bit in HOST_CTRL_REG to request the BT
+ * core wake from sleep before a host-to-BT transfer.
+ *
+ * @param data   Driver instance data.
+ * @param awake  true to assert WAKE_BT, false to deassert.
+ * @return 0 on success, negative errno on bus error.
+ */
 static int __maybe_unused cyw43_bt_set_bt_awake(struct cyw43_bt_hci_data *data,
-					       bool awake)
+						 bool awake)
 {
 	uint32_t value;
 	int ret;
@@ -446,6 +585,13 @@ static int __maybe_unused cyw43_bt_set_bt_awake(struct cyw43_bt_hci_data *data,
 	return cyw43_bt_reg_write(data, HOST_CTRL_REG_ADDR, value);
 }
 
+/**
+ * Set SW_RDY in HOST_CTRL_REG to signal the host side is initialised and
+ * ready to exchange HCI traffic. Called once during open, after ring buffer
+ * setup is complete.
+ *
+ * @return 0 on success, negative errno on bus error.
+ */
 static int cyw43_bt_set_host_ready(struct cyw43_bt_hci_data *data)
 {
 	uint32_t value;
@@ -460,6 +606,15 @@ static int cyw43_bt_set_host_ready(struct cyw43_bt_hci_data *data)
 				  value | BTSDIO_REG_SW_RDY);
 }
 
+/**
+ * Toggle the DATA_VALID bit in HOST_CTRL_REG to notify the BT core that
+ * the ring buffer state has changed (data written or consumed).
+ *
+ * The BTSDIO protocol uses edge signalling — the BT core detects the bit
+ * change, not a specific level — so the bit is XOR'd rather than set.
+ *
+ * @return 0 on success, negative errno on bus error.
+ */
 static int cyw43_bt_toggle_intr(struct cyw43_bt_hci_data *data)
 {
 	uint32_t value;
@@ -474,6 +629,15 @@ static int cyw43_bt_toggle_intr(struct cyw43_bt_hci_data *data)
 				  value ^ BTSDIO_REG_DATA_VALID);
 }
 
+/**
+ * Wait for the BT firmware to publish the WLAN RAM base address, then
+ * resolve all ring buffer register addresses and zero the four indices.
+ *
+ * The firmware writes its WLAN RAM base to WLAN_RAM_BASE_REG after boot;
+ * the ring buffer layout is fixed relative to that base.
+ *
+ * @return 0 on success, -EIO if the base address is never published.
+ */
 static int cyw43_bt_init_buffers(struct cyw43_bt_hci_data *data)
 {
 	uint32_t base;
@@ -506,9 +670,9 @@ static int cyw43_bt_init_buffers(struct cyw43_bt_hci_data *data)
 
 	data->fw_buf.h2b_buf = base + BTSDIO_OFFSET_HOST_WRITE_BUF;
 	data->fw_buf.b2h_buf = base + BTSDIO_OFFSET_HOST_READ_BUF;
-	data->fw_buf.h2b_in = base + BTSDIO_OFFSET_HOST2BT_IN;
+	data->fw_buf.h2b_in  = base + BTSDIO_OFFSET_HOST2BT_IN;
 	data->fw_buf.h2b_out = base + BTSDIO_OFFSET_HOST2BT_OUT;
-	data->fw_buf.b2h_in = base + BTSDIO_OFFSET_BT2HOST_IN;
+	data->fw_buf.b2h_in  = base + BTSDIO_OFFSET_BT2HOST_IN;
 	data->fw_buf.b2h_out = base + BTSDIO_OFFSET_BT2HOST_OUT;
 
 	LOG_INF("BT ring base=0x%08x h2b=0x%08x b2h=0x%08x",
@@ -522,6 +686,15 @@ static int cyw43_bt_init_buffers(struct cyw43_bt_hci_data *data)
 	return ret ? -EIO : 0;
 }
 
+/**
+ * Read all four ring indices in a single contiguous backplane read.
+ * The four 32-bit registers are laid out consecutively starting at
+ * fw_buf.h2b_in, so one mem_read covers all of them.
+ *
+ * @param data   Driver instance data.
+ * @param index  Output: populated with current h2b_in/out, b2h_in/out.
+ * @return 0 on success, negative errno on bus error.
+ */
 static int cyw43_bt_read_indices(struct cyw43_bt_hci_data *data,
 				 struct cyw43_bt_fw_index *index)
 {
@@ -534,24 +707,47 @@ static int cyw43_bt_read_indices(struct cyw43_bt_hci_data *data,
 		return ret;
 	}
 
-	index->h2b_in = values[0];
+	index->h2b_in  = values[0];
 	index->h2b_out = values[1];
-	index->b2h_in = values[2];
+	index->b2h_in  = values[2];
 	index->b2h_out = values[3];
 
 	return 0;
 }
 
+/**
+ * Return the number of bytes available for reading in a power-of-2 ring.
+ * Uses unsigned subtraction so wrap-around is handled correctly without
+ * a branch.
+ */
 static uint32_t cyw43_bt_circ_count(uint32_t in, uint32_t out)
 {
 	return (in - out) & (BTSDIO_FWBUF_SIZE - 1);
 }
 
+/**
+ * Return the number of bytes free for writing.
+ * The +4 reserves space for the BTSDIO packet header so the ring never
+ * reports full with only a partial header slot remaining.
+ */
 static uint32_t cyw43_bt_circ_space(uint32_t in, uint32_t out)
 {
 	return cyw43_bt_circ_count(out, in + 4);
 }
 
+/**
+ * Write one HCI packet to the H2B ring buffer.
+ *
+ * The BTSDIO ring requires 4-byte-aligned writes. If the packet wraps
+ * the end of the ring, it is split into two contiguous writes. After
+ * writing, h2b_in is updated and the interrupt line is toggled to wake
+ * the BT core.
+ *
+ * @param data    Driver instance data.
+ * @param packet  Packet bytes (BTSDIO header + HCI payload).
+ * @param len     Total packet length in bytes.
+ * @return 0 on success, -ENOBUFS if ring is full, negative errno on error.
+ */
 static int cyw43_bt_ring_write(struct cyw43_bt_hci_data *data,
 			       const uint8_t *packet, uint32_t len)
 {
@@ -608,6 +804,22 @@ static int cyw43_bt_ring_write(struct cyw43_bt_hci_data *data,
 	return cyw43_bt_toggle_intr(data);
 }
 
+/**
+ * Read one HCI packet from the B2H ring buffer.
+ *
+ * The BTSDIO packet format is a 4-byte header [len_lo, len_mid, len_hi,
+ * pkt_type] followed by the HCI payload. The header is peeked first to
+ * determine total length before the full read. If the packet wraps the
+ * ring end, it is reassembled from two reads. After reading, b2h_out is
+ * updated and the interrupt line is toggled.
+ *
+ * @param data      Driver instance data.
+ * @param packet    Output buffer for the complete packet (header + payload).
+ * @param max_len   Size of the output buffer.
+ * @param read_len  Output: total bytes read (header + payload), 0 on no-data.
+ * @return 0 on success, -EAGAIN if no data available, -ENOBUFS if packet
+ *         exceeds max_len, negative errno on bus error.
+ */
 static int cyw43_bt_ring_read(struct cyw43_bt_hci_data *data, uint8_t *packet,
 			      uint32_t max_len, uint32_t *read_len)
 {
@@ -677,6 +889,18 @@ static int cyw43_bt_ring_read(struct cyw43_bt_hci_data *data, uint8_t *packet,
 	return cyw43_bt_toggle_intr(data);
 }
 
+/**
+ * RX thread — polls the B2H ring, allocates net_bufs, and dispatches to
+ * the Zephyr BT stack.
+ *
+ * bt_buf_get_rx() allocates a net_buf and prepends the H:4 type byte
+ * automatically, so the HCI payload (buf[4..]) is appended directly after
+ * it. Packets with no HCI payload (total_len == 4, header only) and
+ * unrecognised packet types are silently dropped.
+ *
+ * Runs at preemptible priority 5; yields to the BT stack threads during
+ * the recv() dispatch.
+ */
 static void cyw43_bt_rx_thread(void *p1, void *p2, void *p3)
 {
 	const struct device *dev = p1;
@@ -727,6 +951,23 @@ static void cyw43_bt_rx_thread(void *p1, void *p2, void *p3)
 	}
 }
 
+/**
+ * bt_hci_driver_api.open — initialise the CYW43439 BT transport.
+ *
+ * Sequence:
+ *   1. Obtain WHD driver handle (WiFi must already be up).
+ *   2. Enable WHD shared BT bus mode.
+ *   3. Download BT firmware patch via backplane.
+ *   4. Wait for firmware ready signal.
+ *   5. Resolve ring buffer addresses and zero indices.
+ *   6. Wait for BT core awake signal.
+ *   7. Set SW_RDY and toggle interrupt to signal host readiness.
+ *   8. Start the RX polling thread.
+ *
+ * @param dev   Zephyr device handle.
+ * @param recv  BT stack receive callback registered by bt_hci_recv().
+ * @return 0 on success, negative errno on any initialisation failure.
+ */
 static int cyw43_bt_open(const struct device *dev, bt_hci_recv_t recv)
 {
 	struct cyw43_bt_hci_data *data = dev->data;
@@ -852,6 +1093,18 @@ static int cyw43_bt_open(const struct device *dev, bt_hci_recv_t recv)
 	return 0;
 }
 
+/**
+ * bt_hci_driver_api.send — transmit one HCI packet to the BT core.
+ *
+ * The Zephyr BT stack prepends the H:4 type byte before calling send().
+ * It is stripped here and repackaged into the BTSDIO 4-byte header
+ * [len_lo, len_mid, len_hi, pkt_type] before writing to the H2B ring.
+ * The BT core is woken before each write via WAKE_BT.
+ *
+ * @param dev  Zephyr device handle.
+ * @param buf  net_buf owned by the BT stack; unreferenced after this call.
+ * @return 0 on success, negative errno on error.
+ */
 static int cyw43_bt_send(const struct device *dev, struct net_buf *buf)
 {
 	struct cyw43_bt_hci_data *data = dev->data;
