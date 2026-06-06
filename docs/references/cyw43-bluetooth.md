@@ -18,7 +18,7 @@ A reference for understanding the CYW43439 Bluetooth implementation on the Raspb
 
 ## 1. GPIO Pinout
 
-File: `workspace/modules/hal/rpi_pico/src/boards/include/boards/pico_w.h`
+File: `/workspace/modules/hal/rpi_pico/src/boards/include/boards/pico_w.h` inside the Docker workspace volume
 
 | GPIO | Name | Role |
 |------|------|------|
@@ -35,8 +35,8 @@ File: `workspace/modules/hal/rpi_pico/src/boards/include/boards/pico_w.h`
 ## 2. The Shared SPI Bus
 
 Files:
-- `workspace/modules/hal/rpi_pico/src/rp2_common/pico_cyw43_driver/cybt_shared_bus/cybt_shared_bus_driver.c`
-- `workspace/modules/hal/rpi_pico/src/rp2_common/pico_cyw43_driver/cybt_shared_bus/cybt_shared_bus.c`
+- `/workspace/modules/hal/rpi_pico/src/rp2_common/pico_cyw43_driver/cybt_shared_bus/cybt_shared_bus_driver.c`
+- `/workspace/modules/hal/rpi_pico/src/rp2_common/pico_cyw43_driver/cybt_shared_bus/cybt_shared_bus.c`
 
 WiFi and BT share a **single PIO SPI bus**. WiFi must initialise first.
 
@@ -57,8 +57,8 @@ Circular buffers manage traffic: **H2B** (Host→BT) and **B2H** (BT→Host).
 ## 3. PIO SPI Implementation
 
 Files:
-- `workspace/modules/hal/rpi_pico/src/rp2_common/pico_cyw43_driver/cyw43_bus_pio_spi.c`
-- `workspace/modules/hal/rpi_pico/src/rp2_common/pico_cyw43_driver/cyw43_bus_pio_spi.pio`
+- `/workspace/modules/hal/rpi_pico/src/rp2_common/pico_cyw43_driver/cyw43_bus_pio_spi.c`
+- `/workspace/modules/hal/rpi_pico/src/rp2_common/pico_cyw43_driver/cyw43_bus_pio_spi.pio`
 
 | Function | Purpose |
 |----------|---------|
@@ -72,7 +72,7 @@ Files:
 
 ## 4. BTstack Initialisation
 
-File: `workspace/modules/hal/rpi_pico/src/rp2_common/pico_cyw43_driver/btstack_cyw43.c`
+File: `/workspace/modules/hal/rpi_pico/src/rp2_common/pico_cyw43_driver/btstack_cyw43.c`
 
 `btstack_cyw43_init()` sequence:
 1. Init BTstack memory allocator
@@ -87,7 +87,7 @@ BT device address = WiFi MAC + 1. See `btstack_chipset_cyw43.c`.
 
 ## 5. HCI Transport Layer
 
-File: `workspace/modules/hal/rpi_pico/src/rp2_common/pico_cyw43_driver/btstack_hci_transport_cyw43.c`
+File: `/workspace/modules/hal/rpi_pico/src/rp2_common/pico_cyw43_driver/btstack_hci_transport_cyw43.c`
 
 | Function | Purpose |
 |----------|---------|
@@ -101,7 +101,7 @@ Every HCI packet requires a **4-byte CYW43 header**: `[Len_B0, Len_B1, 0x00, HCI
 
 ## 6. Interrupt Handling
 
-File: `workspace/modules/hal/rpi_pico/src/rp2_common/pico_cyw43_driver/cyw43_driver.c`
+File: `/workspace/modules/hal/rpi_pico/src/rp2_common/pico_cyw43_driver/cyw43_driver.c`
 
 - GPIO 24 (HOST_WAKE) fires a **level-high interrupt** when the CYW43 has data ready
 - Work is dispatched via `async_context_t` (non-blocking)

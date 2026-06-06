@@ -105,15 +105,16 @@ The onboard LED is on **WL_GPIO0** of the CYW43439 — not on the RP2040. It req
 
 ## CYW43439 Firmware Blobs
 
-The CYW43439 has no onboard flash — the RP2040 uploads proprietary Infineon firmware to it at every boot. These binary blobs cannot be open-sourced and must be fetched separately.
+The CYW43439 has no onboard flash — the RP2040 uploads proprietary firmware to it at every boot. This repo keeps the Pico SDK WiFi firmware variant and matching NVRAM in `firmware/`; the CLM regulatory blob is fetched into the Zephyr workspace volume.
 
 | Blob | Purpose |
 |------|---------|
-| `43439A0.bin` | WiFi firmware — uploaded to CYW43 RAM at boot |
-| `43439A0.clm_blob` | Country Localization Module — regional WiFi regulatory limits |
-| `bt_firmware.hcd` | BT firmware patch — uploaded via HCI transport before BT can be used |
+| `firmware/wb43439A0_7_95_49_00_bluetooth.bin` | Pico SDK WiFi firmware variant with `btsdio`; required for the shared WiFi/BLE bus |
+| `firmware/picow_nvram.txt` | Pico W NVRAM with board-specific RF/GPIO settings |
+| `/workspace/modules/hal/infineon/.../43439A0.clm_blob` | Country Localization Module — regional WiFi regulatory limits |
+| `drivers/cyw43/bt/cyw43_btfw_43439.h` | BT SDIO firmware patch embedded by the driver |
 
-**Fetch just the CYW43439 blobs** (fast, included in workspace init):
+**Fetch the Zephyr-managed CYW43439 blobs** (included in workspace init):
 
 ```bash
 docker compose run zephyr ./scripts/fetch-blobs.sh
@@ -125,7 +126,7 @@ docker compose run zephyr ./scripts/fetch-blobs.sh
 docker compose run zephyr bash -c "cd /workspace && west blobs fetch hal_infineon"
 ```
 
-Blobs land in `workspace/modules/hal/infineon/zephyr/blobs/` and are baked into the ELF at build time. They are excluded from git via `.gitignore` on the `workspace/` directory.
+Zephyr-managed blobs land in `/workspace/modules/hal/infineon/zephyr/blobs/` inside the Docker `zephyr-workspace` volume and are baked into the ELF at build time. The volume is outside git.
 
 ---
 

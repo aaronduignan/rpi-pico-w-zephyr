@@ -9,8 +9,10 @@ Proven working as of this branch:
 - Ring buffers initialised
 - HCI `READ_LOCAL_VERSION` command sent and response received
 - BT chip confirmed: Cypress, HCI v11 (Bluetooth 5.2)
+- Zephyr HCI transport opens, sends HCI packets, and dispatches received HCI events through a polling RX thread
+- Passive BLE advertiser/scanner/logger samples run on top of Zephyr's BT stack
 
-Remaining work: wire up the Zephyr HCI transport layer (RX thread, `send`/`recv`).
+Remaining work: improve shared-bus robustness and replace polling RX with interrupt-driven wakeup if the CYW43439/WHD path can support it reliably.
 
 ---
 
@@ -208,6 +210,8 @@ The BTSDIO protocol uses two 4 KB circular buffers in shared RAM:
 The AIROC `43439A0.bin` (v7.95.88) from `whd-expansion/release-v1.1.0` is a
 WiFi-only firmware built without the `btsdio` feature. It has no BT mailbox
 protocol implementation in the WLAN core, so `WLAN_RAM_BASE_REG` is always 0.
+It was tried while chasing unstable WL_GPIO0 LED control, but it did not
+stabilise LED writes and it cannot support the shared WiFi/BLE path.
 
 The stock AIROC BT blob (`bt_firmware.hcd`) is in **HCI UART format** —
 intended for boards that wire the CYW43439's BT UART pins to the host. The
@@ -240,7 +244,7 @@ Fix: use the NVRAM from the pico-sdk's `cyw43-driver` repo
 
 ## Memory Usage
 
-Measured from `app/build/zephyr/zephyr.elf` on this branch.
+Measured from `build/zephyr/zephyr.elf` on this branch.
 Re-run anytime with `docker compose run --rm zephyr ./scripts/memory_report.sh`.
 
 ```
@@ -271,8 +275,7 @@ RAM    [##############..........................]   94.2 KB / 264 KB  (35.7%)
 
 ## What Remains (TODO)
 
-- [ ] RX polling thread — call `data->recv()` with incoming HCI events
-- [ ] `cyw43_bt_send()` — marshal `net_buf` to ring write + wake BT
-- [ ] Remove `-ENOSYS` returns so `bt_enable()` completes
-- [ ] `prj.conf` additions for full BT stack (`CONFIG_BT_HCI_DRIVER=y` etc.)
-- [ ] Interrupt-driven RX (currently only probe path, no live polling)
+- [ ] Characterise shared-bus failures under heavier WiFi/BT traffic
+- [ ] Keep passive scanning as the stable path unless active scanning timeouts are fixed
+- [ ] Replace 1 ms RX polling with interrupt-driven wakeup if it proves reliable
+- [ ] Revisit WL_GPIO0 LED control; neither the Pico SDK BT firmware variant nor the Zephyr AIROC WiFi blob made it reliable
