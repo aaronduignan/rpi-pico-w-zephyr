@@ -4,12 +4,19 @@ services:
     build: .
     platform: linux/amd64
     volumes:
-      - ./workspace:/workspace
+      - zephyr-workspace:/workspace
       - ./:/workspace/app
       - ./scripts:/workspace/scripts
+      - zephyr-ccache:/ccache
     working_dir: /workspace
     environment:
       - ZEPHYR_BASE=/workspace/zephyr
+      - CCACHE_DIR=/ccache
+      - CCACHE_MAXSIZE=5G
       - HOST_WORKSPACE=${PWD}
     stdin_open: true
     tty: true
+
+volumes:
+  zephyr-workspace:
+  zephyr-ccache:

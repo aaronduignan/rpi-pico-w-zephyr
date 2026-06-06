@@ -5,7 +5,7 @@
 ```mermaid
 graph TD
     subgraph Application
-        APP["app/src/main.c"]
+        APP["samples/*/src/main.c"]
         SHELL["Zephyr Shell\nCLI over UART"]
     end
 

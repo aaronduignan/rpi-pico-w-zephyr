@@ -7,15 +7,14 @@ Containerised Zephyr RTOS build environment for the Raspberry Pi Pico W, with SW
 | Platform | Build | Flash | Serial |
 |---|---|---|---|
 | macOS Intel | ✅ | ✅ | ✅ |
-| macOS Apple Silicon | ⚠️ Slow (Rosetta emulation) | ✅ | ✅ |
-| Linux (Ubuntu/Debian) | ✅ | ✅ | ✅ |
+| Linux (Ubuntu/Debian) | Expected, untested | Expected, untested | Expected, untested |
 
 ## Hardware Required
 
 - Raspberry Pi Pico W (target)
 - [Raspberry Pi Debug Probe](https://www.raspberrypi.com/products/debug-probe/)
-- USB-C cable (debug probe)
-- USB-Micro or USB-C cable (Pico W power, optional)
+- USB-Micro cable (Pico W power)
+- USB-Micro cable (debug probe)
 
 ## Wiring
 
@@ -23,7 +22,7 @@ Refer to the [official Debug Probe documentation](https://www.raspberrypi.com/do
 
 ## Prerequisites
 
-### macOS (Intel & Apple Silicon)
+### macOS Intel
 
 ```bash
 brew install openocd
@@ -61,7 +60,7 @@ sudo usermod -aG dialout $USER
 docker compose build
 ```
 
-**2. Initialize the Zephyr workspace** — clones Zephyr and all modules into `workspace/`. Uses `--depth=1` shallow clones (latest commit only, no history) to keep the download manageable. Still takes 20-40 min and ~3 GB on first run. Only needed once per machine; `workspace/` is gitignored.
+**2. Initialize the Zephyr workspace** — clones Zephyr and all modules into the Docker volume mounted at `/workspace`. Uses `--depth=1` shallow clones (latest commit only, no history) to keep the download manageable. Still takes 20-40 min and several GB on first run. Only needed once per machine or Docker volume.
 
 ```bash
 docker compose run zephyr ./scripts/init-workspace.sh
@@ -79,7 +78,7 @@ SAMPLE=cli docker compose run zephyr ./scripts/build.sh
 
 Output: `build/zephyr/zephyr.elf`
 
-Available samples: `cli`, `ble_advertiser`, `ble_scanner`
+Available samples: `cli`, `led_blinky`, `ble_advertiser`, `ble_scanner`, `ble_logger`
 
 **Flash** (run on host, not in Docker)
 
@@ -122,15 +121,17 @@ Shift+Cmd+B opens the build task picker. Select a sample and it builds, starting
 ├── firmware/                   # CYW43439 BT firmware blob and NVRAM
 ├── samples/
 │   ├── cli/                    # Minimal shell over UART
+│   ├── led_blinky/             # CYW43439 WL_GPIO0 LED experiment
 │   ├── ble_advertiser/         # Non-connectable BLE beacon
-│   └── ble_scanner/            # Passive BLE scanner, logs new devices + RSSI
+│   ├── ble_scanner/            # Passive BLE scanner, logs new devices + RSSI
+│   └── ble_logger/             # Shell-driven BLE advertisement logger
 ├── openocd/
 │   └── picoprobe.cfg           # OpenOCD config for Debug Probe
 └── scripts/
     ├── init-workspace.sh       # One-time west workspace setup
     ├── build.sh                # Build firmware (run in Docker)
     ├── flash.sh                # Flash via OpenOCD (run on host)
-    └── docker-start.sh         # Ensure Docker is running (Mac + Linux)
+    └── docker-start.sh         # Ensure Docker is running
 ```
 
 ## Zephyr Version

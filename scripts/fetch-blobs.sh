@@ -1,5 +1,7 @@
 #!/bin/bash
-# Fetch CYW43439 firmware blobs needed for WiFi and Bluetooth.
+# Fetch Zephyr-managed CYW43439 blobs into the Docker workspace volume.
+# The working shared WiFi/BLE path uses repo firmware plus the CLM blob; the
+# AIROC WiFi and UART BT blobs are kept for experiments/reference.
 # Run inside the container: docker compose run zephyr ./scripts/fetch-blobs.sh
 set -e
 
@@ -12,7 +14,7 @@ BT_FW_DIR=${BLOB_DIR}/img/bluetooth/firmware/COMPONENT_43439/COMPONENT_MURATA-1Y
 
 mkdir -p "${WIFI_FW_DIR}" "${WIFI_CLM_DIR}" "${BT_FW_DIR}"
 
-echo "Fetching CYW43439 WiFi firmware..."
+echo "Fetching CYW43439 AIROC WiFi firmware reference..."
 wget -q https://github.com/Infineon/whd-expansion/raw/release-v1.1.0/WHD/COMPONENT_WIFI5/resources/firmware/COMPONENT_43439/43439A0.bin \
      -O "${WIFI_FW_DIR}/43439A0.bin"
 
@@ -20,7 +22,7 @@ echo "Fetching CYW43439 WiFi CLM blob..."
 wget -q https://github.com/Infineon/wifi-resources/raw/release-v2.0.0/clm/COMPONENT_WIFI5/COMPONENT_43439/COMPONENT_CYW943439M2IPA1/43439A0.clm_blob \
      -O "${WIFI_CLM_DIR}/43439A0.clm_blob"
 
-echo "Fetching CYW43439 Bluetooth firmware..."
+echo "Fetching CYW43439 UART Bluetooth firmware reference..."
 wget -q https://raw.githubusercontent.com/Infineon/btstack-integration/release-v4.1.1/COMPONENT_HCI-UART/firmware/COMPONENT_43439/COMPONENT_MURATA-1YN/CYW4343A2_001.003.016.0031.0000_Generic_UART_37_4MHz_wlbga_BU_dl_signed.hcd \
      -O "${BT_FW_DIR}/bt_firmware.hcd"
 

@@ -3,7 +3,7 @@
 Print a concise memory map for a Zephyr RP2040 ELF.
 
 Usage (inside Docker):
-    python3 scripts/elf_map.py app/build/zephyr/zephyr.elf
+    python3 scripts/elf_map.py build/zephyr/zephyr.elf
 
 Or via the wrapper:
     docker compose run --rm zephyr ./scripts/memory_report.sh
