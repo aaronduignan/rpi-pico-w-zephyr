@@ -5,8 +5,12 @@ set -e
 ZEPHYR_VERSION=${ZEPHYR_VERSION:-v4.4.0}
 
 echo "Initialising Zephyr workspace (${ZEPHYR_VERSION})..."
-west init -m https://github.com/zephyrproject-rtos/zephyr --mr "${ZEPHYR_VERSION}" /workspace
 cd /workspace
+if [ -d /workspace/.west ] && [ -d /workspace/zephyr ]; then
+    echo "Existing west workspace found; updating it."
+else
+    west init -m https://github.com/zephyrproject-rtos/zephyr --mr "${ZEPHYR_VERSION}" /workspace
+fi
 west update --fetch-opt=--depth=1
 west zephyr-export
 pip3 install -r zephyr/scripts/requirements.txt
