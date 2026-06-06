@@ -84,7 +84,7 @@ LOG_MODULE_REGISTER(cyw43_bt_hci);
 #define HCI_PACKET_TYPE_ACL     0x02
 #define HCI_PACKET_TYPE_EVENT   0x04
 
-#define CYW43_BT_RX_STACK_SIZE 1536
+#define CYW43_BT_RX_STACK_SIZE 4096
 #define CYW43_BT_RX_PRIORITY   K_PRIO_PREEMPT(5)
 #define CYW43_BT_RX_BUF_SIZE   264  /* 4-byte BTSDIO header + 260 HCI payload */
 #define CYW43_BT_BUF_WORDS     80   /* max firmware record size in 32-bit words */
@@ -874,11 +874,30 @@ static int cyw43_bt_ring_read(struct cyw43_bt_hci_data *data, uint8_t *packet,
 	payload_len = sys_get_le24(header);
 	total_len = payload_len + sizeof(header);
 	rounded_len = ROUND_UP(total_len, 4);
-	if (total_len > max_len) {
+	if (rounded_len > BTSDIO_FWBUF_SIZE) {
+		LOG_DBG("BT invalid B2H packet length %u, dropping %u queued byte(s)",
+			payload_len, available);
+		ret = cyw43_bt_reg_write(data, data->fw_buf.b2h_out,
+					 index.b2h_in);
+		if (ret) {
+			return ret;
+		}
+		(void)cyw43_bt_toggle_intr(data);
 		return -ENOBUFS;
 	}
 	if (available < rounded_len) {
 		return -EAGAIN;
+	}
+	if (rounded_len > max_len) {
+		LOG_DBG("BT B2H packet too large: payload=%u total=%u rounded=%u max=%u",
+			payload_len, total_len, rounded_len, max_len);
+		out = (index.b2h_out + rounded_len) & (BTSDIO_FWBUF_SIZE - 1);
+		ret = cyw43_bt_reg_write(data, data->fw_buf.b2h_out, out);
+		if (ret) {
+			return ret;
+		}
+		(void)cyw43_bt_toggle_intr(data);
+		return -ENOBUFS;
 	}
 
 	if (index.b2h_out + rounded_len <= BTSDIO_FWBUF_SIZE) {
@@ -964,6 +983,13 @@ static void cyw43_bt_rx_thread(void *p1, void *p2, void *p3)
 
 		if (!nb) {
 			LOG_ERR("BT no RX buffer for type 0x%02x", pkt_type);
+			continue;
+		}
+
+		if (net_buf_tailroom(nb) < len - 4) {
+			LOG_ERR("BT RX buffer too small for type 0x%02x len %u tailroom %u",
+				pkt_type, len - 4, net_buf_tailroom(nb));
+			net_buf_unref(nb);
 			continue;
 		}
 

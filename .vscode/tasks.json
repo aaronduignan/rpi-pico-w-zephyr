@@ -5,7 +5,7 @@
             "id": "sample",
             "type": "pickString",
             "description": "Sample to build",
-            "options": ["cli", "led_blinky", "ble_advertiser", "ble_scanner"],
+            "options": ["cli", "led_blinky", "ble_advertiser", "ble_scanner", "ble_logger"],
             "default": "cli"
         }
     ],
