@@ -1,3 +1,4 @@
 workspace/
-app/build/
+build/
+logs/
 .DS_Store

@@ -1,14 +1,71 @@
 {
     "version": "2.0.0",
+    "inputs": [
+        {
+            "id": "sample",
+            "type": "pickString",
+            "description": "Sample to build",
+            "options": ["cli", "led_blinky", "ble_advertiser", "ble_scanner", "ble_logger"],
+            "default": "cli"
+        }
+    ],
     "tasks": [
+        {
+            "label": "Start Docker",
+            "type": "shell",
+            "command": "./scripts/docker-start.sh",
+            "group": "none",
+            "presentation": {
+                "reveal": "silent",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
         {
             "label": "Build firmware",
             "type": "shell",
-            "command": "docker compose run zephyr ./scripts/build.sh",
+            "command": "docker compose run --rm -e SAMPLE=${input:sample} zephyr ./scripts/build.sh",
+            "dependsOn": "Start Docker",
             "group": {
                 "kind": "build",
-                "isDefault": true
+                "isDefault": false
             },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Clean",
+            "type": "shell",
+            "command": "rm -rf build",
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Memory report",
+            "type": "shell",
+            "command": "docker compose run --rm -e SAMPLE=${input:sample} zephyr ./scripts/memory_report.sh",
+            "group": "none",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Memory report (verbose)",
+            "type": "shell",
+            "command": "docker compose run --rm -e SAMPLE=${input:sample} zephyr ./scripts/memory_report.sh --verbose",
+            "group": "none",
             "presentation": {
                 "reveal": "always",
                 "panel": "shared"

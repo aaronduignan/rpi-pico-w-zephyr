@@ -1,0 +1,8 @@
+description: |
+  CYW43439 Bluetooth HCI transport for Raspberry Pi Pico W.
+  Communicates via the shared PIO SPI bus alongside the WiFi driver.
+  The WiFi driver (AIROC) must be initialised first.
+
+compatible: "infineon,cyw43-bt-hci-shared-bus"
+
+include: bt-hci.yaml

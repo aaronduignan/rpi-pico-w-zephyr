@@ -1,0 +1,7 @@
+config BT_CYW43_SHARED_BUS_HCI
+	bool "CYW43439 BT HCI via shared SPI bus"
+	default y
+	depends on BT && DT_HAS_INFINEON_CYW43_BT_HCI_SHARED_BUS_ENABLED
+	help
+	  Bluetooth HCI driver for the CYW43439 on Raspberry Pi Pico W.
+	  Communicates via the shared PIO SPI bus alongside the AIROC WiFi driver.

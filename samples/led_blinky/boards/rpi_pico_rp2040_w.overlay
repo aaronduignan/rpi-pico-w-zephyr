@@ -1,0 +1,18 @@
+/*
+ * The Pico W LED is on WL_GPIO0 of the CYW43439, not on the RP2040.
+ * The common rpi_pico-led.dtsi explicitly excludes the Pico W, so we
+ * define it here using the cyw43_gpio controller from the board DTS.
+ */
+/ {
+	leds {
+		compatible = "gpio-leds";
+		led0: led_0 {
+			gpios = <&cyw43_gpio 0 GPIO_ACTIVE_LOW>;
+			label = "LED";
+		};
+	};
+
+	aliases {
+		led0 = &led0;
+	};
+};

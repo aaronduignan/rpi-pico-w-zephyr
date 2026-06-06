@@ -10,4 +10,6 @@ cd /workspace
 west update --fetch-opt=--depth=1
 west zephyr-export
 pip3 install -r zephyr/scripts/requirements.txt
+echo "Fetching CYW43439 firmware blobs..."
+/workspace/scripts/fetch-blobs.sh
 echo "Workspace ready."

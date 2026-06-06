@@ -5,7 +5,7 @@ services:
     platform: linux/amd64
     volumes:
       - ./workspace:/workspace
-      - ./app:/workspace/app
+      - ./:/workspace/app
       - ./scripts:/workspace/scripts
     working_dir: /workspace
     environment:
