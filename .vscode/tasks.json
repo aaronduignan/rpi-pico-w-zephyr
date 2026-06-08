@@ -7,6 +7,13 @@
             "description": "Sample to build",
             "options": ["cli", "led_blinky", "ble_advertiser", "ble_scanner", "ble_logger"],
             "default": "cli"
+        },
+        {
+            "id": "picoSdkBtExample",
+            "type": "pickString",
+            "description": "Pico SDK BT example to build/debug",
+            "options": ["gatt_counter", "temp_sensor", "gap_le_advertisements", "nordic_spp_counter"],
+            "default": "gatt_counter"
         }
     ],
     "tasks": [
@@ -26,6 +33,40 @@
             "type": "shell",
             "command": "docker compose run --rm -e SAMPLE=${input:sample} zephyr ./scripts/build.sh",
             "dependsOn": "Start Docker",
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Build Pico SDK BT example (Debug)",
+            "type": "shell",
+            "command": "./scripts/pico-sdk-bt-debug.sh",
+            "args": [
+                "${input:picoSdkBtExample}"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Build Pico SDK BLE temp sensor (Debug)",
+            "type": "shell",
+            "command": "./scripts/pico-sdk-bt-debug.sh",
+            "args": [
+                "temp_sensor"
+            ],
             "group": {
                 "kind": "build",
                 "isDefault": false

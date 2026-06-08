@@ -6,14 +6,15 @@
             "type": "cortex-debug",
             "request": "launch",
             "servertype": "openocd",
-            "executable": "${workspaceFolder}/build/zephyr/zephyr.elf",
+            // "executable": "${workspaceFolder}/build/zephyr/zephyr.elf",
+            "executable": "${workspaceFolder}/build/pico-examples-picow-debug/current-pico-sdk-bt.elf",
             "configFiles": [
                 "${workspaceFolder}/openocd/picoprobe.cfg"
             ],
             "gdbPath": "arm-none-eabi-gdb",
             "device": "RP2040",
             "runToEntryPoint": "main",
-            // "preLaunchTask": "Build firmware"
+            "preLaunchTask": "Build Pico SDK BT example (Debug)"
         }
     ]
 }
