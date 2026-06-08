@@ -1,0 +1,129 @@
+From 47e7be1a835f3a5fd619966107b13c78417801e1 Mon Sep 17 00:00:00 2001
+From: Aaron Duignan <aaron.duignan@gmail.com>
+Date: Mon, 8 Jun 2026 09:14:22 +0100
+Subject: [PATCH] Instrument CYW43 bring-up delay hang
+
+---
+ src/cyw43_ctrl.c | 31 ++++++++++++++++++++++++++++++-
+ 1 file changed, 30 insertions(+), 1 deletion(-)
+
+diff --git a/src/cyw43_ctrl.c b/src/cyw43_ctrl.c
+index 8cfcc77..d86d806 100644
+--- a/src/cyw43_ctrl.c
++++ b/src/cyw43_ctrl.c
+@@ -146,44 +146,61 @@ void cyw43_deinit(cyw43_t *self) {
+ }
+ 
+ static int cyw43_ensure_up(cyw43_t *self) {
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: enter poll=%p\n", cyw43_poll);
+     CYW43_THREAD_LOCK_CHECK;
+ 
+     #ifndef NDEBUG
+     assert(cyw43_is_initialized(self)); // cyw43_init has not been called
+     #endif
+     if (cyw43_poll != NULL) {
++        CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: already up, wake bus\n");
+         cyw43_ll_bus_sleep(&self->cyw43_ll, false);
++        CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: already up return 0\n");
+         return 0;
+     }
+ 
+     // Disable the netif if it was previously up
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: tcpip deinit\n");
+     cyw43_cb_tcpip_deinit(self, CYW43_ITF_STA);
+     cyw43_cb_tcpip_deinit(self, CYW43_ITF_AP);
+     self->itf_state = 0;
+ 
+     // Reset and power up the WL chip
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: WL_REG_ON low\n");
+     cyw43_hal_pin_low(CYW43_PIN_WL_REG_ON);
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: WL_REG_ON low done, delay 20\n");
+     cyw43_delay_ms(20);
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: delay 20 done\n");
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: WL_REG_ON high\n");
+     cyw43_hal_pin_high(CYW43_PIN_WL_REG_ON);
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: WL_REG_ON high done, delay 50\n");
+     cyw43_delay_ms(50);
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: WL_REG_ON settled\n");
+ 
+     #if !CYW43_USE_SPI
+     // Initialise SDIO bus
+     // IRQ priority only needs to be higher than CYW43_THREAD_ENTER/EXIT protection (PENDSV)
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: cyw43_sdio_init\n");
+     cyw43_sdio_init();
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: cyw43_sdio_init done\n");
+     #endif
+ 
+     // Initialise the low-level driver
+     #if !CYW43_USE_OTP_MAC
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: cyw43_hal_get_mac\n");
+     cyw43_hal_get_mac(CYW43_HAL_MAC_WLAN0, self->mac);
+ 
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: cyw43_ll_bus_init with mac\n");
+     int ret = cyw43_ll_bus_init(&self->cyw43_ll, self->mac);
+     #else
+     // Not setting mac address. It should come from otp
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: cyw43_ll_bus_init otp mac\n");
+     int ret = cyw43_ll_bus_init(&self->cyw43_ll, NULL);
+     #endif
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: cyw43_ll_bus_init ret=%d\n", ret);
+ 
+     if (ret != 0) {
++        CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: return ret=%d\n", ret);
+         return ret;
+     }
+ 
+@@ -196,6 +213,7 @@ static int cyw43_ensure_up(cyw43_t *self) {
+         self->mac[0], self->mac[1], self->mac[2], self->mac[3], self->mac[4], self->mac[5]);
+ 
+     // Enable async events from low-level driver
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: enable poll/irq\n");
+     cyw43_sleep = CYW43_SLEEP_MAX;
+     cyw43_poll = cyw43_poll_func;
+     #if USE_SDIOIT
+@@ -209,8 +227,10 @@ static int cyw43_ensure_up(cyw43_t *self) {
+     #endif
+ 
+     // Kick things off
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: schedule poll\n");
+     cyw43_schedule_internal_poll_dispatch(cyw43_poll_func);
+ 
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_up: exit ret=%d\n", ret);
+     return ret;
+ }
+ 
+@@ -759,21 +779,30 @@ int cyw43_gpio_get(cyw43_t *self, int gpio, bool *val) {
+ 
+ #if CYW43_ENABLE_BLUETOOTH
+ static int cyw43_ensure_bt_up(cyw43_t *self) {
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_bt_up: enter bt_loaded=%d\n", self->bt_loaded);
+     CYW43_THREAD_ENTER;
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_bt_up: cyw43_ensure_up\n");
+     int ret = cyw43_ensure_up(self);
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_bt_up: cyw43_ensure_up ret=%d bt_loaded=%d\n", ret, self->bt_loaded);
+     if (ret == 0 && !self->bt_loaded) {
++        CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_bt_up: cyw43_btbus_init\n");
+         ret = cyw43_btbus_init(&self->cyw43_ll); // todo: Passing cyw43_ll is a bit naff
++        CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_bt_up: cyw43_btbus_init ret=%d\n", ret);
+         if (ret == 0) {
+             self->bt_loaded = true;
+         }
+     }
+     CYW43_THREAD_EXIT;
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_ensure_bt_up: exit ret=%d bt_loaded=%d\n", ret, self->bt_loaded);
+     return ret;
+ }
+ 
+ // Just load firmware
+ int cyw43_bluetooth_hci_init(void) {
+-    return cyw43_ensure_bt_up(&cyw43_state);
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_bluetooth_hci_init: enter\n");
++    int ret = cyw43_ensure_bt_up(&cyw43_state);
++    CYW43_PRINTF("[pico-sdk-bt] cyw43_bluetooth_hci_init: exit ret=%d\n", ret);
++    return ret;
+ }
+ 
+ // Read data
+-- 
+2.50.1 (Apple Git-155)
+

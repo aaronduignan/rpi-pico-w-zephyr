@@ -1,0 +1,34 @@
+From 9551cae66941367d8bd98a8be3763bd598f14ffc Mon Sep 17 00:00:00 2001
+From: Aaron Duignan <aaron.duignan@gmail.com>
+Date: Mon, 8 Jun 2026 09:18:47 +0100
+Subject: [PATCH] Use non-scheduling CYW43 driver delays
+
+---
+ src/rp2_common/pico_cyw43_driver/cyw43_driver.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/src/rp2_common/pico_cyw43_driver/cyw43_driver.c b/src/rp2_common/pico_cyw43_driver/cyw43_driver.c
+index 95e5da5e..6bacd967 100644
+--- a/src/rp2_common/pico_cyw43_driver/cyw43_driver.c
++++ b/src/rp2_common/pico_cyw43_driver/cyw43_driver.c
+@@ -267,11 +267,15 @@ void cyw43_await_background_or_timeout_us(uint32_t timeout_us) {
+ }
+ 
+ void cyw43_delay_ms(uint32_t ms) {
+-    async_context_wait_until(cyw43_async_context, make_timeout_time_ms(ms));
++    // The low-level CYW43 driver calls this while holding the async-context lock.
++    // Do not use async_context_wait_until()/sleep_ms() here; background work is
++    // intentionally blocked until the lock is released.
++    busy_wait_ms(ms);
+ }
+ 
+ void cyw43_delay_us(uint32_t us) {
+-    async_context_wait_until(cyw43_async_context, make_timeout_time_us(us));
++    // See cyw43_delay_ms().
++    busy_wait_us(us);
+ }
+ 
+ #if !CYW43_LWIP
+-- 
+2.50.1 (Apple Git-155)
+

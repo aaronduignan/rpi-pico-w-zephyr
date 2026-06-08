@@ -1,0 +1,128 @@
+From eaf4d201502640358e2d867d0861a996d609ecb2 Mon Sep 17 00:00:00 2001
+From: Aaron Duignan <aaron.duignan@gmail.com>
+Date: Mon, 8 Jun 2026 09:17:45 +0100
+Subject: [PATCH 2/2] Use non-scheduling CYW43 driver delays
+
+---
+ lib/cyw43-driver                                |  2 +-
+ .../cybt_shared_bus/cybt_shared_bus.c           | 17 +----------------
+ src/rp2_common/pico_cyw43_driver/cyw43_driver.c |  4 ++++
+ 3 files changed, 6 insertions(+), 17 deletions(-)
+
+diff --git a/lib/cyw43-driver b/lib/cyw43-driver
+index dd756822..3cf5453a 160000
+--- a/lib/cyw43-driver
++++ b/lib/cyw43-driver
+@@ -1 +1 @@
+-Subproject commit dd7568229f3bf7a37737b9e1ef250c26efe75b23
++Subproject commit 3cf5453abd7ef9474aca6b7eac736a640cb7c16c
+diff --git a/src/rp2_common/pico_cyw43_driver/cybt_shared_bus/cybt_shared_bus.c b/src/rp2_common/pico_cyw43_driver/cybt_shared_bus/cybt_shared_bus.c
+index e52f0c33..f256f0e4 100644
+--- a/src/rp2_common/pico_cyw43_driver/cybt_shared_bus/cybt_shared_bus.c
++++ b/src/rp2_common/pico_cyw43_driver/cybt_shared_bus/cybt_shared_bus.c
+@@ -80,29 +80,23 @@ static cybt_result_t cybt_fw_download_finish(uint8_t *p_write_buf, uint8_t *p_he
+ }
+ 
+ static cybt_result_t cybt_wait_bt_ready(uint32_t max_polling_times) {
+-    cybt_info("[pico-sdk-bt] cybt_wait_bt_ready: enter max=%" PRIu32 "\n", max_polling_times);
+     cyw43_delay_ms(BTFW_WAIT_TIME_MS);
+     do {
+         if (cybt_ready()) {
+-            cybt_info("[pico-sdk-bt] cybt_wait_bt_ready: ready\n");
+             return CYBT_SUCCESS;
+         }
+         cyw43_delay_ms(BTSDIO_FW_READY_POLLING_INTERVAL_MS);
+     } while (max_polling_times--);
+-    cybt_error("[pico-sdk-bt] cybt_wait_bt_ready: timeout\n");
+     return CYBT_ERR_TIMEOUT;
+ }
+ 
+ static cybt_result_t cybt_wait_bt_awake(uint32_t max_polling_times) {
+-    cybt_info("[pico-sdk-bt] cybt_wait_bt_awake: enter max=%" PRIu32 "\n", max_polling_times);
+     do {
+         if (cybt_awake()) {
+-            cybt_info("[pico-sdk-bt] cybt_wait_bt_awake: awake\n");
+             return CYBT_SUCCESS;
+         }
+         cyw43_delay_ms(BTSDIO_BT_AWAKE_POLLING_INTERVAL_MS);
+     } while (max_polling_times--);
+-    cybt_error("[pico-sdk-bt] cybt_wait_bt_awake: timeout\n");
+     return CYBT_ERR_TIMEOUT;
+ }
+ 
+@@ -112,10 +106,8 @@ int cyw43_btbus_init(cyw43_ll_t *self) {
+     uint8_t *p_write_buf = NULL;
+     uint8_t *p_hex_buf = NULL;
+ 
+-    cybt_info("[pico-sdk-bt] cyw43_btbus_init: enter\n");
+     cybt_sharedbus_driver_init(self);
+ 
+-    cybt_info("[pico-sdk-bt] cyw43_btbus_init: cybt_fw_download_prepare\n");
+     ret = cybt_fw_download_prepare(&p_write_buf, &p_hex_buf);
+     if (CYBT_SUCCESS != ret) {
+         cybt_error("Could not allocate memory\n");
+@@ -136,15 +128,13 @@ int cyw43_btbus_init(cyw43_ll_t *self) {
+     fw_data_len = cyw43_btfw_43439_len;
+     fw_data_buf = cyw43_btfw_43439;
+ #endif
+-    cybt_info("[pico-sdk-bt] cyw43_btbus_init: cybt_fw_download len=%" PRIu32 "\n", fw_data_len);
+     ret = cybt_fw_download(fw_data_buf,
+                            fw_data_len,
+                            p_write_buf,
+                            p_hex_buf
+     );
+-    cybt_info("[pico-sdk-bt] cyw43_btbus_init: cybt_fw_download ret=0x%x\n", ret);
+ 
+-    cybt_info("[pico-sdk-bt] cyw43_btbus_init: cybt_fw_download_finish\n");
++    cybt_debug("cybt_fw_download_finish\n");
+     cybt_fw_download_finish(p_write_buf, p_hex_buf);
+ 
+     if (CYBT_SUCCESS != ret) {
+@@ -162,25 +152,20 @@ int cyw43_btbus_init(cyw43_ll_t *self) {
+         return CYBT_ERR_HCI_INIT_FAILED;
+     }
+ 
+-    cybt_info("[pico-sdk-bt] cyw43_btbus_init: cybt_init_buffer\n");
+     ret = cybt_init_buffer();
+-    cybt_info("[pico-sdk-bt] cyw43_btbus_init: cybt_init_buffer ret=0x%x\n", ret);
+     assert(ret == 0);
+     if (ret != 0) {
+         return ret;
+     }
+     ret = cybt_wait_bt_awake(BTSDIO_FW_AWAKE_POLLING_RETRY_COUNT);
+-    cybt_info("[pico-sdk-bt] cyw43_btbus_init: cybt_wait_bt_awake ret=0x%x\n", ret);
+     assert(ret == 0);
+     if (ret != 0) {
+         return ret;
+     }
+ 
+-    cybt_info("[pico-sdk-bt] cyw43_btbus_init: set_host_ready/toggle_bt_intr\n");
+     cybt_set_host_ready();
+     cybt_toggle_bt_intr();
+ 
+-    cybt_info("[pico-sdk-bt] cyw43_btbus_init: success\n");
+     return CYBT_SUCCESS;
+ }
+ 
+diff --git a/src/rp2_common/pico_cyw43_driver/cyw43_driver.c b/src/rp2_common/pico_cyw43_driver/cyw43_driver.c
+index dc391cb9..6bacd967 100644
+--- a/src/rp2_common/pico_cyw43_driver/cyw43_driver.c
++++ b/src/rp2_common/pico_cyw43_driver/cyw43_driver.c
+@@ -267,10 +267,14 @@ void cyw43_await_background_or_timeout_us(uint32_t timeout_us) {
+ }
+ 
+ void cyw43_delay_ms(uint32_t ms) {
++    // The low-level CYW43 driver calls this while holding the async-context lock.
++    // Do not use async_context_wait_until()/sleep_ms() here; background work is
++    // intentionally blocked until the lock is released.
+     busy_wait_ms(ms);
+ }
+ 
+ void cyw43_delay_us(uint32_t us) {
++    // See cyw43_delay_ms().
+     busy_wait_us(us);
+ }
+ 
+-- 
+2.50.1 (Apple Git-155)
+
