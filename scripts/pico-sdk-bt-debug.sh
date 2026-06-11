@@ -5,6 +5,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 BUILD_DIR="${SCRIPT_DIR}/build/pico-examples-picow-debug"
 PICOTOOL_DEPS="${SCRIPT_DIR}/build/pico-examples-picow/_deps"
 CURRENT_ELF="${BUILD_DIR}/current-pico-sdk-bt.elf"
+CURRENT_BUILD_INFO="${CURRENT_ELF}.build-info"
 
 example="${1:-gatt_counter}"
 
@@ -32,6 +33,13 @@ case "${example}" in
     ;;
 esac
 
+sdk_branch=$(git -C "${SCRIPT_DIR}/pico-sdk" branch --show-current 2>/dev/null || true)
+sdk_commit=$(git -C "${SCRIPT_DIR}/pico-sdk" rev-parse --short HEAD 2>/dev/null || true)
+sdk_branch=${sdk_branch:-detached}
+sdk_commit=${sdk_commit:-unknown}
+
+echo "Building ${example} from pico-sdk ${sdk_branch} ${sdk_commit}"
+
 cmake -S "${SCRIPT_DIR}/pico-examples" -B "${BUILD_DIR}" \
   -DPICO_SDK_PATH="${SCRIPT_DIR}/pico-sdk" \
   -DPICO_BOARD=pico_w \
@@ -42,4 +50,12 @@ cmake -S "${SCRIPT_DIR}/pico-examples" -B "${BUILD_DIR}" \
 cmake --build "${BUILD_DIR}" --target "${target}"
 
 cp "${elf}" "${CURRENT_ELF}"
+{
+  echo "example=${example}"
+  echo "target=${target}"
+  echo "sdk_branch=${sdk_branch}"
+  echo "sdk_commit=${sdk_commit}"
+  echo "elf=${elf}"
+} > "${CURRENT_BUILD_INFO}"
 echo "Prepared ${example}: ${CURRENT_ELF}"
+echo "Build info: ${CURRENT_BUILD_INFO}"
